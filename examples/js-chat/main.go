@@ -37,7 +37,7 @@ type UserInfo struct {
 }
 
 type ChatServer struct {
-	server     knet.WebsocketServer
+	server     knet.Server
 	clients    map[string]*UserInfo
 	clientsMux sync.RWMutex
 	ctx        context.Context

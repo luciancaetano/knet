@@ -79,6 +79,11 @@ type ServerConfig struct {
 	TLSCertFile string
 	TLSKeyFile  string
 	TLSConfig   *tls.Config
+
+	// Logger routes knet diagnostic output to your application's logging
+	// infrastructure. nil → knet.DefaultLogger() (writes via slog.Default).
+	// Use knet.NopLogger() to suppress all output.
+	Logger knet.Logger
 }
 
 // RateLimitConfig defines per-client message rate limiting (token-bucket).
@@ -139,6 +144,7 @@ type Server struct {
 	upgrader     websocket.Upgrader
 	onConnect    OnConnectFn
 	onDisconnect OnClientDisconnectFn
+	log          knet.Logger
 }
 
 // New creates a new Server from the provided config.
@@ -164,6 +170,11 @@ func New(cfg *ServerConfig) *Server {
 		workerQueueSize = 10_000
 	}
 
+	logger := cfg.Logger
+	if logger == nil {
+		logger = knet.DefaultLogger()
+	}
+
 	return &Server{
 		addr:            cfg.Addr,
 		rateLimitConfig: cfg.RateLimitConfig,
@@ -178,6 +189,7 @@ func New(cfg *ServerConfig) *Server {
 		tlsConfig:       cfg.TLSConfig,
 		onConnect:       cfg.OnConnect,
 		onDisconnect:    cfg.OnClientDisconnect,
+		log:             logger,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -243,7 +255,7 @@ func (s *Server) Start(ctx context.Context) error {
 			serveErr = s.server.Serve(ln)
 		}
 		if serveErr != nil && serveErr != http.ErrServerClosed {
-			fmt.Printf("knet: server error: %v\n", serveErr)
+			s.log.Error("server error", "error", serveErr)
 		}
 	}()
 
@@ -309,13 +321,13 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // RegisterHandler registers a handler for a specific command ID.
 // The handler is executed in the server's worker pool.
-func (s *Server) RegisterHandler(ctx context.Context, commandID uint32, handler func(client knet.Client, payload []byte)) error {
+func (s *Server) RegisterHandler(ctx context.Context, commandID uint32, handler knet.HandlerFunc) error {
 	s.handlers.Store(commandID, handler)
 	return nil
 }
 
 // RegisterJSONRPCHandler registers a JSON-RPC 2.0 method handler.
-func (s *Server) RegisterJSONRPCHandler(ctx context.Context, method string, handler func(params map[string]interface{}) (interface{}, error)) error {
+func (s *Server) RegisterJSONRPCHandler(ctx context.Context, method string, handler knet.JSONRPCHandler) error {
 	s.jsonRPCHandlers.Store(method, handler)
 	return nil
 }
@@ -402,7 +414,7 @@ func (s *Server) handleClient(client *Client) {
 		_, data, err := client.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				fmt.Printf("knet: unexpected close: client_id=%s err=%v\n", client.ID(), err)
+				s.log.Warn("unexpected close", "client_id", client.ID(), "error", err)
 			}
 			return
 		}
@@ -410,7 +422,7 @@ func (s *Server) handleClient(client *Client) {
 		client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
 
 		if !client.CheckRateLimit(context.Background()) {
-			fmt.Printf("knet: rate limit exceeded: client_id=%s addr=%s\n", client.ID(), client.RemoteAddr())
+			s.log.Warn("rate limit exceeded", "client_id", client.ID(), "addr", client.RemoteAddr())
 			client.serverClosed.Store(true)
 			client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "rate limit exceeded")
 			return
@@ -435,7 +447,7 @@ func (s *Server) handleProtocolMessage(client *Client, commandID uint32, payload
 	}
 
 	if handler, ok := s.handlers.Load(commandID); ok {
-		if handlerFunc, ok := handler.(func(knet.Client, []byte)); ok {
+		if handlerFunc, ok := handler.(knet.HandlerFunc); ok {
 			s.dispatchHandler(func() { handlerFunc(client, payload) })
 		}
 	}
@@ -460,7 +472,7 @@ func (s *Server) dispatchHandler(fn func()) {
 		defer s.handlerWg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("knet: handler panic recovered: %v\n%s\n", r, debug.Stack())
+				s.log.Error("handler panic recovered", "panic", r, "stack", string(debug.Stack()))
 			}
 		}()
 		fn()
@@ -472,7 +484,7 @@ func (s *Server) dispatchHandler(fn func()) {
 	default:
 		// Worker queue is full; undo the Add so the WaitGroup stays consistent.
 		s.handlerWg.Done()
-		fmt.Printf("knet: worker queue full, dropping message handler\n")
+		s.log.Warn("worker queue full, dropping message handler")
 	}
 }
 
@@ -519,7 +531,7 @@ func (s *Server) handleJSONRPCMessage(client *Client, payload []byte) {
 		return
 	}
 
-	handlerFunc, ok := handler.(func(params map[string]interface{}) (interface{}, error))
+	handlerFunc, ok := handler.(knet.JSONRPCHandler)
 	if !ok {
 		s.sendJSONRPCError(client, req.ID, knet.JSONRPCInternalError, knet.ErrInternalError, nil)
 		return
@@ -529,7 +541,7 @@ func (s *Server) handleJSONRPCMessage(client *Client, payload []byte) {
 	if err != nil {
 		// MED-4 fix: log the full error server-side; send only the generic
 		// "Internal error" string to the client to prevent information leakage.
-		fmt.Printf("knet: JSON-RPC handler error for method %q: %v\n", req.Method, err)
+		s.log.Error("JSON-RPC handler error", "method", req.Method, "error", err)
 		s.sendJSONRPCError(client, req.ID, knet.JSONRPCInternalError, knet.ErrInternalError, nil)
 		return
 	}
@@ -558,12 +570,12 @@ func (s *Server) sendJSONRPCError(client *Client, id interface{}, code int, mess
 
 	responseData, err := json.Marshal(response)
 	if err != nil {
-		fmt.Printf("knet: failed to marshal JSON-RPC error: %v\n", err)
+		s.log.Error("failed to marshal JSON-RPC error response", "error", err)
 		return
 	}
 
 	if err := client.Send(context.Background(), knet.CmdJSONRPC, responseData); err != nil {
-		fmt.Printf("knet: failed to send JSON-RPC error to client %s: %v\n", client.ID(), err)
+		s.log.Warn("failed to send JSON-RPC error to client", "client_id", client.ID(), "error", err)
 	}
 }
 

@@ -23,8 +23,22 @@ type OnDisconnectFn = websocket.OnClientDisconnectFn
 type ServerConfig = *websocket.ServerConfig
 
 // New creates a new WebSocket server from the provided config.
-func New(cfg ServerConfig) knet.WebsocketServer {
+func New(cfg ServerConfig) knet.Server {
 	return websocket.New(cfg)
+}
+
+// WithLogger sets a custom logger on the server config, replacing the default
+// slog-backed logger. Use this to route knet diagnostics into your
+// application's logging infrastructure (zerolog, zap, slog, etc.).
+//
+// Example:
+//
+//	cfg := ws.NewConfig(":8080", ws.DefaultRateLimitConfig(), ws.AllOrigins(), nil, nil)
+//	cfg = ws.WithLogger(cfg, myLogger)
+//	server := ws.New(cfg)
+func WithLogger(cfg ServerConfig, l knet.Logger) ServerConfig {
+	cfg.Logger = l
+	return cfg
 }
 
 // NewConfig is the recommended way to construct a ServerConfig.

@@ -2,32 +2,41 @@ package knet
 
 import "context"
 
-// WebsocketServer defines the interface for a WebSocket server that uses binary protocol encoding.
+// HandlerFunc is the signature of a binary-command message handler.
+// Handlers are registered via [Server.RegisterHandler] and executed
+// asynchronously in the server's worker pool.
+type HandlerFunc func(client Client, payload []byte)
+
+// JSONRPCHandler is the signature of a JSON-RPC 2.0 method handler.
+// Handlers are registered via [Server.RegisterJSONRPCHandler].
+// For a type-safe alternative see [HandleJSONRPC].
+type JSONRPCHandler func(params map[string]interface{}) (interface{}, error)
+
+// Server defines the interface for a WebSocket server that uses binary
+// protocol encoding.
 //
-// All messages exchanged between the server and clients are encoded using the internal
-// protocol format with a CommandID (uint32) and binary Payload.
+// All messages exchanged between the server and clients are encoded using the
+// internal protocol format: a CommandID (uint32) followed by a binary Payload.
 //
 // Example usage:
 //
 //	import "github.com/luciancaetano/knet/ws"
 //
-//	config := ws.NewConfig(
+//	server := ws.New(ws.NewConfig(
 //	    ":8080",
 //	    ws.DefaultRateLimitConfig(),
 //	    ws.AllOrigins(),
-//	    nil,  // OnConnect callback (optional)
-//	    nil,  // OnDisconnect callback (optional)
-//	)
-//	server := ws.New(config)
+//	    nil, // OnConnect callback (optional)
+//	    nil, // OnDisconnect callback (optional)
+//	))
 //
 //	// Register a handler for command 0x01
-//	server.RegisterHandler(ctx, 0x01, func(client Client, payload []byte) {
-//	    response := []byte("response")
-//	    client.Send(ctx, 0x01, response)
+//	server.RegisterHandler(ctx, 0x01, func(client knet.Client, payload []byte) {
+//	    client.Send(ctx, 0x01, []byte("pong"))
 //	})
 //
 //	server.Start(ctx)
-type WebsocketServer interface {
+type Server interface {
 	// Start starts the WebSocket server and begins listening for connections.
 	// The server will continue running until Stop is called or the context is cancelled.
 	//
@@ -63,18 +72,12 @@ type WebsocketServer interface {
 	//	    response := processMessage(payload)
 	//	    client.Send(ctx, 0x0100, response)
 	//	})
-	RegisterHandler(ctx context.Context, commandID uint32, handler func(client Client, payload []byte)) error
+	RegisterHandler(ctx context.Context, commandID uint32, handler HandlerFunc) error
 
 	// RegisterJSONRPCHandler registers a JSON-RPC 2.0 method handler.
 	//
-	// This is an optional feature for compatibility with JSON-RPC clients.
-	// JSON-RPC messages are internally converted to the binary protocol format
-	// using the reserved command ID 0xFFFFFFFF.
-	//
-	// Parameters:
-	//   - ctx: Context for cancellation
-	//   - method: The JSON-RPC method name
-	//   - handler: Function that processes JSON-RPC params and returns a result
+	// For a type-safe version that avoids map[string]interface{} assertions,
+	// use the [HandleJSONRPC] generic helper instead.
 	//
 	// Example:
 	//
@@ -83,7 +86,7 @@ type WebsocketServer interface {
 	//	    b := params["b"].(float64)
 	//	    return a + b, nil
 	//	})
-	RegisterJSONRPCHandler(ctx context.Context, method string, handler func(params map[string]interface{}) (interface{}, error)) error
+	RegisterJSONRPCHandler(ctx context.Context, method string, handler JSONRPCHandler) error
 
 	// BroadcastCommand sends a command to all connected clients.
 	//
