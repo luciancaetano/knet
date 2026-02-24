@@ -55,13 +55,13 @@ func TestEncode(t *testing.T) {
 		{
 			name:      "payload at max size",
 			commandID: 0x01,
-			payload:   make([]byte, maxPayloadSize),
+			payload:   make([]byte, MaxPayloadSize),
 			wantError: false,
 		},
 		{
 			name:      "payload exceeds max size",
 			commandID: 0x01,
-			payload:   make([]byte, maxPayloadSize+1),
+			payload:   make([]byte, MaxPayloadSize+1),
 			wantError: true,
 		},
 	}
@@ -82,19 +82,19 @@ func TestEncode(t *testing.T) {
 			}
 
 			// Verify header size
-			expectedLen := headerSize + len(tt.payload)
+			expectedLen := HeaderSize + len(tt.payload)
 			if len(result) != expectedLen {
 				t.Errorf("result length = %d, want %d", len(result), expectedLen)
 			}
 
 			// Verify command ID in header
-			gotCmd := binary.BigEndian.Uint32(result[:headerSize])
+			gotCmd := binary.BigEndian.Uint32(result[:HeaderSize])
 			if gotCmd != tt.commandID {
 				t.Errorf("encoded command ID = %v, want %v", gotCmd, tt.commandID)
 			}
 
 			// Verify payload
-			gotPayload := result[headerSize:]
+			gotPayload := result[HeaderSize:]
 			if !bytes.Equal(gotPayload, tt.payload) {
 				t.Errorf("encoded payload = %v, want %v", gotPayload, tt.payload)
 			}
@@ -232,8 +232,9 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-// TestDecodePayloadImmutability tests that modifying the decoded payload doesn't affect the original data
-func TestDecodePayloadImmutability(t *testing.T) {
+// TestDecodePayloadIndependence verifies that the payload returned by Decode is
+// an independent copy: mutating it must not affect the original input buffer.
+func TestDecodePayloadIndependence(t *testing.T) {
 	t.Parallel()
 
 	original := []byte{0x00, 0x00, 0x00, 0x01, 0x41, 0x42, 0x43} // cmd=1, payload="ABC"
@@ -245,15 +246,14 @@ func TestDecodePayloadImmutability(t *testing.T) {
 		t.Fatalf("Decode() failed: %v", err)
 	}
 
-	// Modify the decoded payload
+	// Mutate the returned payload.
 	if len(payload) > 0 {
 		payload[0] = 0xFF
 	}
 
-	// Original data should be modified since Decode uses slicing
-	// This documents the behavior - caller should not modify the payload
-	if original[4] != 0xFF {
-		t.Log("Note: Decode returns a slice referencing the original data")
+	// The original buffer must remain untouched.
+	if !bytes.Equal(original, originalCopy) {
+		t.Error("Decode() mutated the original input buffer; it must return an independent copy")
 	}
 }
 

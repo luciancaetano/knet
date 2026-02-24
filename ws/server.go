@@ -2,38 +2,42 @@ package ws
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/luciancaetano/knet"
 	"github.com/luciancaetano/knet/internal/websocket"
 )
 
+// Type aliases re-exported for callers that import only this package.
 type RateLimitConfig = websocket.RateLimitConfig
 type CheckOriginFn = websocket.CheckOriginFn
+
+// OnConnectFn is called after a WebSocket handshake completes.
+//
+// BREAKING CHANGE: the function now returns bool.  Return true to accept the
+// connection; return false to reject it with a policy-violation close code.
+// This enables authentication checks to be enforced at the API level.
 type OnConnectFn = websocket.OnConnectFn
+
 type OnDisconnectFn = websocket.OnClientDisconnectFn
 type ServerConfig = *websocket.ServerConfig
 
-// New creates a new WebSocket server with rate limiting and connection callbacks.
-//
-// Parameters:
-//   - addr: The server address (e.g., ":8080" or "localhost:8080")
-//   - rateLimitConfig: Rate limiting configuration. Use DefaultRateLimitConfig() or NoRateLimit()
-//   - onCheckOrigin: Function to validate WebSocket origins. Use AllOrigins() to allow all (dev only)
-//   - onConnect: Optional callback function called when a client connects. Can be nil.
-//     This is called after the WebSocket handshake completes but before
-//     the message reading loop starts. Use this to track connections,
-//     send welcome messages, or perform authentication.
-//
-// Example:
-//
-//	server := ws.New(":8080", ws.DefaultRateLimitConfig(), ws.AllOrigins(), func(client knet.Client) {
-//	    log.Printf("Client connected: %s", client.ID())
-//	})
+// New creates a new WebSocket server from the provided config.
 func New(cfg ServerConfig) knet.WebsocketServer {
 	return websocket.New(cfg)
 }
 
-func NewConfig(addr string, rateLimitConfig *RateLimitConfig, checkOrigin CheckOriginFn, onConnect OnConnectFn, onDisconnect OnDisconnectFn) ServerConfig {
+// NewConfig is the recommended way to construct a ServerConfig.
+//
+// For advanced options (TLS, connection limits, worker-pool tuning) build the
+// *websocket.ServerConfig struct directly and pass it to New.
+func NewConfig(
+	addr string,
+	rateLimitConfig *RateLimitConfig,
+	checkOrigin CheckOriginFn,
+	onConnect OnConnectFn,
+	onDisconnect OnDisconnectFn,
+) ServerConfig {
 	return &websocket.ServerConfig{
 		Addr:               addr,
 		RateLimitConfig:    rateLimitConfig,
@@ -43,19 +47,48 @@ func NewConfig(addr string, rateLimitConfig *RateLimitConfig, checkOrigin CheckO
 	}
 }
 
-// AllOrigins returns the default checkOrigin function that allows all origins
+// AllOrigins returns a CheckOriginFn that allows every origin.
+//
+// WARNING: only use this during local development.  In production, use
+// AllowedOrigins to restrict access to known origins and prevent cross-site
+// WebSocket hijacking (CSWSH).
 func AllOrigins() CheckOriginFn {
 	return func(r *http.Request) bool {
 		return true
 	}
 }
 
-// DefaultRateLimitConfig returns the default rate limit configuration
+// AllowedOrigins returns a CheckOriginFn that accepts connections only from
+// the provided set of origins (case-insensitive comparison).
+//
+// Example:
+//
+//	ws.AllowedOrigins([]string{
+//	    "https://game.example.com",
+//	    "https://staging.example.com",
+//	})
+func AllowedOrigins(origins []string) CheckOriginFn {
+	allowed := make(map[string]struct{}, len(origins))
+	for _, o := range origins {
+		allowed[strings.ToLower(strings.TrimRight(o, "/"))] = struct{}{}
+	}
+	return func(r *http.Request) bool {
+		origin := strings.ToLower(strings.TrimRight(r.Header.Get("Origin"), "/"))
+		if origin == "" {
+			return false
+		}
+		_, ok := allowed[origin]
+		return ok
+	}
+}
+
+// DefaultRateLimitConfig returns the default rate-limit configuration
+// (100 msg/s, burst 200).
 func DefaultRateLimitConfig() *RateLimitConfig {
 	return websocket.DefaultRateLimitConfig()
 }
 
-// NoRateLimit returns a configuration with rate limiting disabled
+// NoRateLimit returns a configuration with rate limiting disabled.
 func NoRateLimit() *RateLimitConfig {
 	return websocket.NoRateLimit()
 }

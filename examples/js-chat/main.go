@@ -51,7 +51,7 @@ func NewChatServer(addr string) *ChatServer {
 
 	// Create WebSocket server with rate limiting and connection callback
 	rateLimitConfig := ws.DefaultRateLimitConfig()
-	cs.server = ws.New(ws.NewConfig(addr, rateLimitConfig, ws.AllOrigins(), func(client knet.Client) {
+	cs.server = ws.New(ws.NewConfig(addr, rateLimitConfig, ws.AllOrigins(), func(client knet.Client) bool {
 		log.Printf("New client connected: ID=%s, RemoteAddr=%s", client.ID(), client.RemoteAddr())
 
 		cs.clientsMux.Lock()
@@ -61,6 +61,7 @@ func NewChatServer(addr string) *ChatServer {
 			JoinedAt: time.Now(),
 		}
 		cs.clientsMux.Unlock()
+		return true // accept all connections (add auth logic here in production)
 	}, func(client knet.Client, voluntary bool) {
 		log.Printf("Client disconnected: ID=%s, RemoteAddr=%s, Voluntary=%v", client.ID(), client.RemoteAddr(), voluntary)
 

@@ -147,7 +147,7 @@ func TestNewServer(t *testing.T) {
 			t.Parallel()
 
 			server := New(&ServerConfig{
-				Addr:               ":8080",
+				Addr:               tt.addr,
 				RateLimitConfig:    tt.rateLimitConfig,
 				CheckOrigin:        tt.checkOrigin,
 				OnConnect:          nil,
@@ -190,8 +190,8 @@ func TestServerInitialState(t *testing.T) {
 		t.Error("new server should not be running")
 	}
 
-	if server.addr != ":8084" {
-		t.Errorf("server.addr = %v, want :8084", server.addr)
+	if server.addr != ":8080" {
+		t.Errorf("server.addr = %v, want :8080", server.addr)
 	}
 
 	if server.upgrader.ReadBufferSize != 1024 {

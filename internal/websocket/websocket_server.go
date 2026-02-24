@@ -2,10 +2,15 @@ package websocket
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"runtime"
+	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -15,53 +20,75 @@ import (
 	"github.com/luciancaetano/knet/internal/protocol"
 )
 
-// CheckOriginFn is a function that validates the origin of a WebSocket connection request.
-// It receives the HTTP request and returns true if the origin is allowed, false otherwise.
-// Use this to implement CORS policies for your WebSocket server.
+// CheckOriginFn validates the origin of a WebSocket upgrade request.
+// Return true to accept, false to reject.
 type CheckOriginFn = func(r *http.Request) bool
 
-// OnConnectFn is a callback function that is called when a new client connects.
-// It is called after the WebSocket handshake completes and before the message
-// reading loop starts. This is the ideal place to:
-//   - Track connected clients
-//   - Send welcome messages
-//   - Perform authentication or authorization
-//   - Initialize client-specific state
+// OnConnectFn is called after the WebSocket handshake completes and before the
+// message-read loop starts.
 //
-// The callback receives the client instance which can be used to send messages
-// or access client information (ID, remote address, context).
-//
-// Note: This function is called synchronously during connection setup.
-// Avoid long-running operations that could block new connections.
-type OnConnectFn = func(client knet.Client)
+// BREAKING CHANGE (HIGH-4 fix): the function now returns a bool.
+// Return true to accept the connection; return false to reject it with a
+// policy-violation close code.  This makes authentication enforceable at the
+// API level rather than being an unenforced convention.
+type OnConnectFn = func(client knet.Client) bool
 
-// OnClientDisconnectFn is a callback type invoked when a connected client disconnects from the server.
-// The function receives the disconnected client and a boolean that is true when the disconnect was
-// initiated by the client (voluntary), and false for unexpected or server-initiated disconnects.
-// Implementations can use this hook to perform cleanup, logging, resource reclamation, or
-// application-specific notification when a client connection ends.
+// OnClientDisconnectFn is called when a client disconnects.
+//
+// voluntary is true when the remote peer closed the connection normally; false
+// when the server closed it (rate-limit, protocol error, shutdown, etc.)
+// (LOW-1 fix: previously always reported as voluntary).
 type OnClientDisconnectFn = func(client knet.Client, voluntary bool)
 
+// ServerConfig holds all configuration for a Server.
 type ServerConfig struct {
-	Addr               string
-	RateLimitConfig    *RateLimitConfig
-	CheckOrigin        CheckOriginFn
+	// Network address to listen on (e.g. ":8080").
+	Addr string
+
+	// Per-client rate limiting. nil → DefaultRateLimitConfig.
+	RateLimitConfig *RateLimitConfig
+
+	// CORS / origin validation for the WebSocket upgrade. nil → gorilla default.
+	CheckOrigin CheckOriginFn
+
+	// Connection lifecycle hooks. Both are optional (nil is valid).
 	OnConnect          OnConnectFn
 	OnClientDisconnect OnClientDisconnectFn
+
+	// HIGH-1: maximum number of concurrent connections (0 = unlimited).
+	MaxConnections int64
+
+	// LOW-5: maximum concurrent connections from a single remote IP (0 = unlimited).
+	MaxConnPerIP int64
+
+	// HIGH-3: worker-pool size for handler goroutines (0 = GOMAXPROCS × 4).
+	WorkerCount int
+
+	// HIGH-3: depth of the worker task queue (0 = 10 000).
+	WorkerQueueSize int
+
+	// Idle read deadline; close the connection if no data arrives within this
+	// window (0 = 60 s).
+	ReadDeadline time.Duration
+
+	// PERF-5: interval between keepalive pings sent to idle clients (0 = 54 s).
+	PingInterval time.Duration
+
+	// CRIT-3: TLS support.  Set TLSCertFile + TLSKeyFile to enable wss://.
+	// TLSConfig is optional additional configuration (ciphers, client auth, …).
+	TLSCertFile string
+	TLSKeyFile  string
+	TLSConfig   *tls.Config
 }
 
-// RateLimitConfig defines rate limiting configuration for clients
+// RateLimitConfig defines per-client message rate limiting (token-bucket).
 type RateLimitConfig struct {
-	// MessagesPerSecond defines how many messages a client can send per second
 	MessagesPerSecond rate.Limit
-	// Burst defines the maximum burst size (token bucket capacity)
-	Burst int
-	// Enabled determines if rate limiting is active
-	Enabled bool
+	Burst             int
+	Enabled           bool
 }
 
-// DefaultRateLimitConfig returns the default rate limit configuration
-// Allows 100 messages per second with burst of 200
+// DefaultRateLimitConfig returns 100 msg/s with a burst of 200.
 func DefaultRateLimitConfig() *RateLimitConfig {
 	return &RateLimitConfig{
 		MessagesPerSecond: 100,
@@ -70,25 +97,42 @@ func DefaultRateLimitConfig() *RateLimitConfig {
 	}
 }
 
-// NoRateLimit returns a configuration with rate limiting disabled
+// NoRateLimit returns a configuration with rate limiting disabled.
 func NoRateLimit() *RateLimitConfig {
-	return &RateLimitConfig{
-		Enabled: false,
-	}
+	return &RateLimitConfig{Enabled: false}
 }
 
-// Server implements the WebsocketServer interface
+// Server implements the knet.WebsocketServer interface.
 type Server struct {
-	addr     string
-	server   *http.Server
-	clients  sync.Map // map[string]*Client
-	handlers sync.Map // map[uint32]func(client knet.Client, payload []byte)
+	addr            string
+	server          *http.Server
+	clients         sync.Map // map[string]*Client
+	handlers        sync.Map // map[uint32]func(knet.Client, []byte)
+	jsonRPCHandlers sync.Map // map[string]func(map[string]interface{}) (interface{}, error)
 
-	// JSON-RPC handlers (converted to protocol messages internally)
-	jsonRPCHandlers sync.Map // map[string]func(params map[string]interface{}) (interface{}, error)
-
-	// Rate limiting configuration
 	rateLimitConfig *RateLimitConfig
+
+	// HIGH-1 / LOW-5: connection limits.
+	maxConnections int64
+	maxConnPerIP   int64
+	connCount      atomic.Int64
+	perIPConns     sync.Map // map[string]*atomic.Int64
+
+	// HIGH-3: bounded worker pool.
+	workerCh        chan func()
+	workerCount     int
+	workerQueueSize int
+	handlerWg       sync.WaitGroup // in-flight handler tasks
+	clientWg        sync.WaitGroup // live handleClient goroutines
+
+	// Timing.
+	readDeadline time.Duration
+	pingInterval time.Duration
+
+	// CRIT-3: TLS.
+	tlsCertFile string
+	tlsKeyFile  string
+	tlsConfig   *tls.Config
 
 	mu           sync.RWMutex
 	running      bool
@@ -97,33 +141,41 @@ type Server struct {
 	onDisconnect OnClientDisconnectFn
 }
 
-// New creates a new WebSocket server instance with the specified configuration.
-//
-// Parameters:
-//   - addr: The network address to listen on (e.g., ":8080" or "localhost:8080")
-//   - rateLimitConfig: Rate limiting configuration. If nil, DefaultRateLimitConfig() is used.
-//   - checkOrigin: Function to validate WebSocket connection origins (CORS).
-//     Return true to allow the connection, false to reject it.
-//   - onConnect: Optional callback called when a client connects. Can be nil.
-//     Called after handshake but before message reading starts.
-//
-// The server uses the Gorilla WebSocket library with read/write buffer sizes of 1024 bytes.
-// Rate limiting is applied per-client using a token bucket algorithm.
-//
-// Example:
-//
-//	server := New(":8080", DefaultRateLimitConfig(),
-//	    func(r *http.Request) bool { return true },
-//	    func(client knet.Client) {
-//	        log.Printf("Client connected: %s", client.ID())
-//	    })
+// New creates a new Server from the provided config.
 func New(cfg *ServerConfig) *Server {
 	if cfg.RateLimitConfig == nil {
 		cfg.RateLimitConfig = DefaultRateLimitConfig()
 	}
+
+	readDeadline := cfg.ReadDeadline
+	if readDeadline <= 0 {
+		readDeadline = 60 * time.Second
+	}
+	pingInterval := cfg.PingInterval
+	if pingInterval <= 0 {
+		pingInterval = 54 * time.Second
+	}
+	workerCount := cfg.WorkerCount
+	if workerCount <= 0 {
+		workerCount = runtime.GOMAXPROCS(0) * 4
+	}
+	workerQueueSize := cfg.WorkerQueueSize
+	if workerQueueSize <= 0 {
+		workerQueueSize = 10_000
+	}
+
 	return &Server{
 		addr:            cfg.Addr,
 		rateLimitConfig: cfg.RateLimitConfig,
+		maxConnections:  cfg.MaxConnections,
+		maxConnPerIP:    cfg.MaxConnPerIP,
+		workerCount:     workerCount,
+		workerQueueSize: workerQueueSize,
+		readDeadline:    readDeadline,
+		pingInterval:    pingInterval,
+		tlsCertFile:     cfg.TLSCertFile,
+		tlsKeyFile:      cfg.TLSKeyFile,
+		tlsConfig:       cfg.TLSConfig,
 		onConnect:       cfg.OnConnect,
 		onDisconnect:    cfg.OnClientDisconnect,
 		upgrader: websocket.Upgrader{
@@ -134,7 +186,13 @@ func New(cfg *ServerConfig) *Server {
 	}
 }
 
-// Start starts the WebSocket server
+// Start starts the WebSocket server.
+//
+// LOW-3 fix: uses net.Listen for synchronous bind-error detection instead of
+// the previous 100 ms heuristic timer.
+//
+// MED-5 fix: HTTP server timeouts are configured to prevent Slowloris attacks
+// on the upgrade handshake path.
 func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.running {
@@ -147,38 +205,71 @@ func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 
-	s.server = &http.Server{
-		Addr:    s.addr,
-		Handler: mux,
-	}
-
-	errChan := make(chan error, 1)
-	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errChan <- err
-		}
-	}()
-
-	// Check for immediate startup errors with a small timeout
-	select {
-	case err := <-errChan:
-		// Reset running state without calling Stop to avoid deadlock
+	// Bind synchronously so port conflicts surface immediately as an error
+	// rather than after a 100 ms race-prone timer.
+	ln, err := net.Listen("tcp", s.addr)
+	if err != nil {
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
 		return err
-	case <-ctx.Done():
-		// Context cancelled, stop the server
+	}
+
+	s.server = &http.Server{
+		Addr:              s.addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second, // prevents Slowloris on the upgrade path
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	// Initialise and start the bounded worker pool (HIGH-3 fix).
+	s.workerCh = make(chan func(), s.workerQueueSize)
+	for i := 0; i < s.workerCount; i++ {
+		go func() {
+			for task := range s.workerCh {
+				task()
+			}
+		}()
+	}
+
+	go func() {
+		var serveErr error
+		if s.tlsCertFile != "" || s.tlsConfig != nil {
+			s.server.TLSConfig = s.tlsConfig
+			serveErr = s.server.ServeTLS(ln, s.tlsCertFile, s.tlsKeyFile)
+		} else {
+			serveErr = s.server.Serve(ln)
+		}
+		if serveErr != nil && serveErr != http.ErrServerClosed {
+			fmt.Printf("knet: server error: %v\n", serveErr)
+		}
+	}()
+
+	// Watch for external context cancellation.
+	go func() {
+		<-ctx.Done()
 		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return s.Stop(stopCtx)
-	case <-time.After(100 * time.Millisecond):
-		// Server started successfully, no immediate errors
-		return nil
-	}
+		s.Stop(stopCtx) //nolint:errcheck
+	}()
+
+	return nil
 }
 
-// Stop stops the WebSocket server
+// Stop gracefully shuts down the server.
+//
+// MED-3 fix: Stop now waits for all handleClient goroutines and in-flight
+// handler tasks to finish before returning.  Callers can safely release
+// application resources (DB connections, caches, …) immediately after Stop.
+//
+// Shutdown order:
+//  1. Mark server as stopped; close all client connections.
+//  2. Wait for handleClient goroutines to exit (no new tasks after this).
+//  3. Wait for in-flight handler tasks.
+//  4. Close the worker channel (drain + exit workers).
+//  5. Shut down the HTTP listener.
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if !s.running {
@@ -188,13 +279,27 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.running = false
 	s.mu.Unlock()
 
-	// Close all client connections
+	// Flag all clients as server-closed and close their connections.
 	s.clients.Range(func(key, value interface{}) bool {
 		if client, ok := value.(*Client); ok {
+			client.serverClosed.Store(true)
 			client.Close(ctx)
 		}
 		return true
 	})
+
+	// Wait for all handleClient goroutines to exit; after this point no new
+	// handler tasks can be submitted to the pool.
+	s.clientWg.Wait()
+
+	// Wait for all already-dispatched handler tasks.
+	s.handlerWg.Wait()
+
+	// Shut down the worker pool.
+	if s.workerCh != nil {
+		close(s.workerCh)
+		s.workerCh = nil
+	}
 
 	if s.server != nil {
 		return s.server.Shutdown(ctx)
@@ -202,41 +307,67 @@ func (s *Server) Stop(ctx context.Context) error {
 	return nil
 }
 
-// RegisterHandler registers a handler for a specific command ID
-// The handler is executed asynchronously and receives the client and payload
+// RegisterHandler registers a handler for a specific command ID.
+// The handler is executed in the server's worker pool.
 func (s *Server) RegisterHandler(ctx context.Context, commandID uint32, handler func(client knet.Client, payload []byte)) error {
 	s.handlers.Store(commandID, handler)
 	return nil
 }
 
-// RegisterJSONRPCHandler registers a JSON-RPC handler for a specific method
-// Internally, JSON-RPC requests are converted to protocol messages
-// This uses the reserved command ID net.CmdJSONRPC
+// RegisterJSONRPCHandler registers a JSON-RPC 2.0 method handler.
 func (s *Server) RegisterJSONRPCHandler(ctx context.Context, method string, handler func(params map[string]interface{}) (interface{}, error)) error {
 	s.jsonRPCHandlers.Store(method, handler)
 	return nil
 }
 
-// handleWebSocket handles incoming WebSocket connections
+// handleWebSocket upgrades an HTTP connection to WebSocket and launches the
+// per-client goroutine.
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		http.Error(w, "Failed to upgrade connection", http.StatusBadRequest)
+	// HIGH-1: global connection cap.
+	if s.maxConnections > 0 && s.connCount.Load() >= s.maxConnections {
+		http.Error(w, "server at capacity", http.StatusServiceUnavailable)
 		return
 	}
 
-	client := NewClient(conn, r.RemoteAddr, s.rateLimitConfig)
+	// LOW-5: per-IP connection cap.
+	ip := extractIP(r.RemoteAddr)
+	if !s.incrIPCount(ip) {
+		http.Error(w, "too many connections from this address", http.StatusTooManyRequests)
+		return
+	}
+
+	conn, err := s.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		s.decrIPCount(ip)
+		return
+	}
+
+	// HIGH-2: enforce the protocol payload limit at the transport layer.
+	// gorilla will close the connection with 1009 (Message Too Big) before
+	// allocating a buffer for oversized frames, preventing memory exhaustion.
+	conn.SetReadLimit(int64(protocol.MaxPayloadSize) + int64(protocol.HeaderSize))
+
+	s.connCount.Add(1)
+	client := NewClient(conn, r.RemoteAddr, s.rateLimitConfig, s.pingInterval)
 	s.clients.Store(client.ID(), client)
 
-	// Start reading messages from client
-	go s.handleClient(client)
+	s.clientWg.Add(1)
+	go func() {
+		defer func() {
+			s.clientWg.Done()
+			s.connCount.Add(-1)
+			s.decrIPCount(ip)
+		}()
+		s.handleClient(client)
+	}()
 }
 
-// handleClient handles messages from a connected client
+// handleClient is the per-connection read loop.
 func (s *Server) handleClient(client *Client) {
 	defer func() {
-		voluntary := client.Context().Err() == context.Canceled
-
+		// LOW-1 fix: voluntary == true only when the remote peer initiated the
+		// close; false when the server closed it.
+		voluntary := !client.serverClosed.Load()
 		if s.onDisconnect != nil {
 			s.onDisconnect(client, voluntary)
 		}
@@ -244,81 +375,110 @@ func (s *Server) handleClient(client *Client) {
 		client.Close(context.Background())
 	}()
 
-	// Set read deadline to prevent indefinite blocking
-	client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-
-	// Set pong handler to reset read deadline on pong
+	client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
 	client.conn.SetPongHandler(func(string) error {
-		client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
 		return nil
 	})
 
-	// Call onConnect callback if provided
-	// This is the ideal place to send welcome messages, track connections,
-	// or perform initial authentication
+	// HIGH-4 fix: onConnect returns bool; false = reject the connection.
 	if s.onConnect != nil {
-		s.onConnect(client)
+		if !s.onConnect(client) {
+			client.serverClosed.Store(true)
+			client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "unauthorized")
+			return
+		}
 	}
 
+	// MED-2 fix: when the client context is cancelled, immediately set a past
+	// deadline so a goroutine blocked in ReadMessage returns at once rather
+	// than waiting up to readDeadline seconds.
+	go func() {
+		<-client.Context().Done()
+		client.conn.SetReadDeadline(time.Now())
+	}()
+
 	for {
-		select {
-		case <-client.Context().Done():
+		_, data, err := client.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				fmt.Printf("knet: unexpected close: client_id=%s err=%v\n", client.ID(), err)
+			}
 			return
-		default:
-			_, data, err := client.conn.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					fmt.Printf("Unexpected WebSocket close error: %v\n", err)
-				}
-				return
-			}
-
-			// Reset read deadline after successful read
-			client.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-
-			// Check rate limit before processing message
-			if !client.CheckRateLimit(context.Background()) {
-				// Rate limit exceeded, send error and close connection
-				fmt.Printf("Warn: Rate limit exceeded for client client_id=%s remote_addr=%s\n", client.ID(), client.RemoteAddr())
-				client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "Rate limit exceeded")
-				return
-			}
-
-			// Decode protocol message
-			commandID, payload, err := protocol.Decode(data)
-			if err != nil {
-				// Invalid protocol message, close connection
-				client.CloseWithCode(context.Background(), websocket.CloseProtocolError, knet.ErrInvalidMessageFormat)
-				return
-			}
-
-			// Handle the message
-			s.handleProtocolMessage(client, commandID, payload)
 		}
+
+		client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
+
+		if !client.CheckRateLimit(context.Background()) {
+			fmt.Printf("knet: rate limit exceeded: client_id=%s addr=%s\n", client.ID(), client.RemoteAddr())
+			client.serverClosed.Store(true)
+			client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "rate limit exceeded")
+			return
+		}
+
+		commandID, payload, err := protocol.Decode(data)
+		if err != nil {
+			client.serverClosed.Store(true)
+			client.CloseWithCode(context.Background(), websocket.CloseProtocolError, knet.ErrInvalidMessageFormat)
+			return
+		}
+
+		s.handleProtocolMessage(client, commandID, payload)
 	}
 }
 
-// handleProtocolMessage handles binary protocol messages
-// Handlers are executed in separate goroutines to avoid blocking the read loop
+// handleProtocolMessage routes a decoded message to its registered handler.
 func (s *Server) handleProtocolMessage(client *Client, commandID uint32, payload []byte) {
-	// Check if this is a JSON-RPC command (reserved command ID)
 	if commandID == knet.CmdJSONRPC {
-		// JSON-RPC also handled in goroutine
-		go s.handleJSONRPCMessage(client, payload)
+		s.dispatchHandler(func() { s.handleJSONRPCMessage(client, payload) })
 		return
 	}
 
-	// Handle normal protocol command
 	if handler, ok := s.handlers.Load(commandID); ok {
 		if handlerFunc, ok := handler.(func(knet.Client, []byte)); ok {
-			// Execute handler in goroutine (async, client decides if/when to respond)
-			go handlerFunc(client, payload)
+			s.dispatchHandler(func() { handlerFunc(client, payload) })
 		}
 	}
-	// Note: Unknown commands are silently ignored (fire-and-forget pattern)
+	// Unknown commands are silently ignored (fire-and-forget design).
 }
 
-// JSONRPCRequest represents a JSON-RPC 2.0 request
+// dispatchHandler submits fn to the worker pool.
+//
+// CRIT-2 fix: every handler runs inside a recover() so a panicking handler
+// cannot crash the server process.
+//
+// MED-3 fix: handlerWg tracks every submitted task so Stop can wait for all
+// in-flight work.
+//
+// HIGH-3 fix: the bounded worker pool prevents unbounded goroutine growth.
+// If the queue is full the task is dropped (with a log) rather than spawning
+// an unlimited number of goroutines.
+func (s *Server) dispatchHandler(fn func()) {
+	s.handlerWg.Add(1)
+
+	task := func() {
+		defer s.handlerWg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("knet: handler panic recovered: %v\n%s\n", r, debug.Stack())
+			}
+		}()
+		fn()
+	}
+
+	select {
+	case s.workerCh <- task:
+		// queued successfully
+	default:
+		// Worker queue is full; undo the Add so the WaitGroup stays consistent.
+		s.handlerWg.Done()
+		fmt.Printf("knet: worker queue full, dropping message handler\n")
+	}
+}
+
+// --- JSON-RPC -----------------------------------------------------------------
+
+// JSONRPCRequest represents a JSON-RPC 2.0 request.
 type JSONRPCRequest struct {
 	JSONRPC string                 `json:"jsonrpc"`
 	Method  string                 `json:"method"`
@@ -326,7 +486,7 @@ type JSONRPCRequest struct {
 	ID      interface{}            `json:"id"`
 }
 
-// JSONRPCResponse represents a JSON-RPC 2.0 response
+// JSONRPCResponse represents a JSON-RPC 2.0 response.
 type JSONRPCResponse struct {
 	JSONRPC string        `json:"jsonrpc"`
 	Result  interface{}   `json:"result,omitempty"`
@@ -334,14 +494,13 @@ type JSONRPCResponse struct {
 	ID      interface{}   `json:"id"`
 }
 
-// JSONRPCError represents a JSON-RPC 2.0 error
+// JSONRPCError represents a JSON-RPC 2.0 error object.
 type JSONRPCError struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
 }
 
-// handleJSONRPCMessage handles JSON-RPC messages encoded in protocol format
 func (s *Server) handleJSONRPCMessage(client *Client, payload []byte) {
 	var req JSONRPCRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
@@ -368,7 +527,10 @@ func (s *Server) handleJSONRPCMessage(client *Client, payload []byte) {
 
 	result, err := handlerFunc(req.Params)
 	if err != nil {
-		s.sendJSONRPCError(client, req.ID, knet.JSONRPCInternalError, err.Error(), nil)
+		// MED-4 fix: log the full error server-side; send only the generic
+		// "Internal error" string to the client to prevent information leakage.
+		fmt.Printf("knet: JSON-RPC handler error for method %q: %v\n", req.Method, err)
+		s.sendJSONRPCError(client, req.ID, knet.JSONRPCInternalError, knet.ErrInternalError, nil)
 		return
 	}
 
@@ -384,36 +546,30 @@ func (s *Server) handleJSONRPCMessage(client *Client, payload []byte) {
 		return
 	}
 
-	// Send JSON-RPC response
-	client.Send(context.Background(), knet.CmdJSONRPC, responseData)
+	client.Send(context.Background(), knet.CmdJSONRPC, responseData) //nolint:errcheck
 }
 
-// sendJSONRPCError sends a JSON-RPC error response encoded in protocol format
 func (s *Server) sendJSONRPCError(client *Client, id interface{}, code int, message string, data interface{}) {
 	response := JSONRPCResponse{
 		JSONRPC: knet.JSONRPCVersion,
-		Error: &JSONRPCError{
-			Code:    code,
-			Message: message,
-			Data:    data,
-		},
-		ID: id,
+		Error:   &JSONRPCError{Code: code, Message: message, Data: data},
+		ID:      id,
 	}
 
 	responseData, err := json.Marshal(response)
 	if err != nil {
-		// Log error but continue - marshal errors are rare
-		fmt.Printf("Failed to marshal JSON-RPC error response: %v", err)
+		fmt.Printf("knet: failed to marshal JSON-RPC error: %v\n", err)
 		return
 	}
 
 	if err := client.Send(context.Background(), knet.CmdJSONRPC, responseData); err != nil {
-		// Log error - client may have disconnected
-		fmt.Printf("Failed to send JSON-RPC error response to client %s: %v", client.ID(), err)
+		fmt.Printf("knet: failed to send JSON-RPC error to client %s: %v\n", client.ID(), err)
 	}
 }
 
-// GetClient returns a client by ID
+// --- Client helpers -----------------------------------------------------------
+
+// GetClient returns a client by its UUID.
 func (s *Server) GetClient(id string) (*Client, bool) {
 	if client, ok := s.clients.Load(id); ok {
 		return client.(*Client), true
@@ -421,23 +577,79 @@ func (s *Server) GetClient(id string) (*Client, bool) {
 	return nil, false
 }
 
-// SendToClient sends a protocol message to a specific client
+// SendToClient sends a protocol message to a specific client.
 func (s *Server) SendToClient(ctx context.Context, clientID string, commandID uint32, payload []byte) error {
 	client, ok := s.GetClient(clientID)
 	if !ok {
 		return fmt.Errorf("%s: %s", knet.ErrClientNotFound, clientID)
 	}
-
 	return client.Send(ctx, commandID, payload)
 }
 
-// BroadcastCommand sends a command to all connected clients
+// BroadcastCommand sends a command to all connected clients.
+//
+// PERF-1 fix: the payload is encoded once and the same bytes are delivered to
+// every client's send channel, eliminating N redundant allocations.
+//
+// PERF-6 fix: per-client delivery is non-blocking (sendRaw); a slow client
+// with a full buffer has its copy dropped rather than stalling the broadcast.
+//
+// LOW-7 fix: returns a non-nil error reporting how many clients were not
+// reached (previously always returned nil).
 func (s *Server) BroadcastCommand(ctx context.Context, commandID uint32, payload []byte) error {
+	encoded, err := protocol.Encode(commandID, payload)
+	if err != nil {
+		return err
+	}
+
+	var failCount int
 	s.clients.Range(func(key, value interface{}) bool {
 		if client, ok := value.(*Client); ok {
-			client.Send(ctx, commandID, payload)
+			if err := client.sendRaw(ctx, encoded); err != nil {
+				failCount++
+			}
 		}
 		return true
 	})
+
+	if failCount > 0 {
+		return fmt.Errorf("broadcast: failed to deliver to %d client(s)", failCount)
+	}
 	return nil
+}
+
+// --- Internal helpers ---------------------------------------------------------
+
+// extractIP returns the host component of a "host:port" remote address.
+func extractIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return host
+}
+
+// incrIPCount increments the connection counter for ip and returns false if
+// the per-IP cap has been reached.
+func (s *Server) incrIPCount(ip string) bool {
+	if s.maxConnPerIP <= 0 {
+		return true
+	}
+	val, _ := s.perIPConns.LoadOrStore(ip, new(atomic.Int64))
+	counter := val.(*atomic.Int64)
+	if counter.Add(1) > s.maxConnPerIP {
+		counter.Add(-1)
+		return false
+	}
+	return true
+}
+
+// decrIPCount decrements the connection counter for ip.
+func (s *Server) decrIPCount(ip string) {
+	if s.maxConnPerIP <= 0 {
+		return
+	}
+	if val, ok := s.perIPConns.Load(ip); ok {
+		val.(*atomic.Int64).Add(-1)
+	}
 }
