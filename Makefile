@@ -1,6 +1,6 @@
 .PHONY: test
 
-.PHONY: test test-unit test-e2e test-stress test-docker-stress test-docker-e2e test-coverage chat-example clean help
+.PHONY: test test-unit test-e2e test-stress test-docker-stress test-docker-e2e test-coverage chat-example clean help docs docs-install
 
 # Default target
 help:
@@ -12,7 +12,8 @@ help:
 	@echo "  make test-docker-stress - Run stress tests against the Dockerized server"
 	@echo "  make test-docker-e2e    - Run full Docker e2e (up, test, down)"
 	@echo "  make test-coverage - Run tests with coverage report"
-	@echo "  chat-example	 	- Run the JS chat example"
+	@echo "  make chat-example  - Run the JS chat example over wss:// (generates a dev cert)"
+	@echo "  make docs          - Serve the documentation site locally (live reload)"
 	@echo "  make clean         - Clean test cache and coverage files"
 
 # Run all tests
@@ -65,5 +66,14 @@ fmt:
 lint:
 	golangci-lint run ./...
 
-chat-example:
-	cd examples/js-chat && go run main.go
+chat:
+	cd examples/chat && go run .
+
+# Install docs dependencies (mkdocs-material) into a local venv
+docs-install:
+	test -d .venv || python3 -m venv .venv
+	.venv/bin/pip install -q -r docs-site/requirements.txt
+
+# Serve the documentation site locally with live reload
+docs: docs-install
+	.venv/bin/mkdocs serve

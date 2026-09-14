@@ -1,5 +1,7 @@
 # knet
 
+<img src="knet-dog.png" alt="knet mascot" width="200">
+
 [![Go Reference](https://pkg.go.dev/badge/github.com/luciancaetano/knet.svg)](https://pkg.go.dev/github.com/luciancaetano/knet)
 [![Go Report Card](https://goreportcard.com/badge/github.com/luciancaetano/knet)](https://goreportcard.com/report/github.com/luciancaetano/knet)
 

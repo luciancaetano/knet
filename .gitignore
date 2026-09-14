@@ -31,4 +31,5 @@ go.work.sum
 # .idea/
 # .vscode/
 
-.knowledge_source/
+.knowledge_source/site/
+.venv/

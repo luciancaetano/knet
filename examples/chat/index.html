@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>knet chat example</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Go brand palette: https://go.dev/blog/go-brand
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          gopher: {
+            blue: "#00ADD8",
+            dark: "#007D9C",
+            aqua: "#00A29C",
+            fuchsia: "#CE3262",
+            yellow: "#FDDD00",
+            black: "#101010",
+          },
+        },
+      },
+    },
+  };
+</script>
+</head>
+<body class="min-h-screen bg-gopher-black text-gray-100 font-sans">
+
+<div class="max-w-xl mx-auto py-10 px-4">
+
+  <header class="flex items-center gap-3 mb-6">
+    <img src="knet-dog.png" alt="knet mascot" class="w-12 h-12 rounded-full ring-2 ring-gopher-blue object-cover">
+    <div>
+      <h1 class="text-xl font-bold text-white">knet chat example</h1>
+      <p class="text-sm text-gray-400">
+        Status: <span id="status" class="font-semibold text-gopher-yellow">desconectado</span>
+      </p>
+    </div>
+  </header>
+
+  <p class="text-xs text-gray-500 mb-4">
+    Certificado autoassinado: se a conexão não abrir, visite
+    <a href="https://localhost:8080/ws" target="_blank" class="text-gopher-blue underline">https://localhost:8080</a>
+    numa aba e aceite o aviso de segurança — depois volte aqui e clique em Conectar.
+  </p>
+
+  <div class="flex gap-2 mb-4">
+    <input id="name" placeholder="seu nome" value="guest"
+      class="flex-1 bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gopher-blue">
+    <button id="connectBtn"
+      class="bg-gopher-blue hover:bg-gopher-dark text-white font-semibold px-4 py-2 rounded text-sm transition">
+      Conectar
+    </button>
+    <button id="leaveBtn" disabled
+      class="bg-gopher-fuchsia hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded text-sm transition">
+      Sair
+    </button>
+  </div>
+
+  <ul id="messages"
+    class="list-none p-0 h-80 overflow-y-auto bg-neutral-900 border border-neutral-700 rounded mb-4 divide-y divide-neutral-800"></ul>
+
+  <div class="flex gap-2">
+    <input id="text" placeholder="mensagem" disabled
+      class="flex-1 bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-gopher-blue">
+    <button id="sendBtn" disabled
+      class="bg-gopher-aqua hover:bg-gopher-dark disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded text-sm transition">
+      Enviar
+    </button>
+  </div>
+
+</div>
+
+<script>
+// --8<-- [start:wire-format]
+// Wire format for every frame sent/received over the socket:
+//   [1B version][4B BE commandID][payload]
+// version is always 1 for this protocol revision.
+const VERSION = 1;
+
+function encodeFrame(commandId, payload) {
+  const buf = new Uint8Array(1 + 4 + payload.length);
+  buf[0] = VERSION;
+  new DataView(buf.buffer).setUint32(1, commandId, false); // big-endian
+  buf.set(payload, 5);
+  return buf;
+}
+
+function decodeFrame(buf) {
+  const view = new DataView(buf);
+  const commandId = view.getUint32(1, false);
+  const payload = new Uint8Array(buf, 5);
+  return { commandId, payload };
+}
+// --8<-- [end:wire-format]
+
+// --8<-- [start:commands]
+const CmdSetName = 0x0001;
+const CmdChat = 0x0002;
+const CmdUserJoined = 0x0003;
+const CmdUserLeft = 0x0004;
+const CmdUserDisconnected = 0x0005;
+// --8<-- [end:commands]
+
+// --8<-- [start:client]
+// Minimal vanilla WebSocket wrapper with auto-reconnect. The published
+// wire format is simple enough that a real client library isn't required
+// for a small example like this one.
+class ChatClient extends EventTarget {
+  constructor(url) {
+    super();
+    this.url = url;
+    this.ws = null;
+    this.manuallyDisconnected = false;
+    this.reconnectAttempt = 0;
+  }
+
+  connect() {
+    this.manuallyDisconnected = false;
+    this.ws = new WebSocket(this.url);
+    this.ws.binaryType = "arraybuffer";
+
+    this.ws.onopen = () => {
+      this.reconnectAttempt = 0;
+      this.dispatchEvent(new Event("connected"));
+    };
+
+    this.ws.onmessage = (ev) => {
+      const { commandId, payload } = decodeFrame(ev.data);
+      this.dispatchEvent(new CustomEvent("command", { detail: { commandId, payload } }));
+    };
+
+    this.ws.onclose = () => {
+      this.dispatchEvent(new Event("disconnected"));
+      if (!this.manuallyDisconnected) this.scheduleReconnect();
+    };
+  }
+
+  scheduleReconnect() {
+    this.reconnectAttempt++;
+    const delay = 1000 * Math.min(this.reconnectAttempt, 5);
+    setTimeout(() => this.connect(), delay);
+  }
+
+  // Clean disconnect: sends a normal close frame, so the server's
+  // OnDisconnect callback sees voluntary=true.
+  disconnect() {
+    this.manuallyDisconnected = true;
+    this.ws?.close();
+  }
+
+  sendString(commandId, text) {
+    const payload = new TextEncoder().encode(text);
+    this.ws.send(encodeFrame(commandId, payload));
+  }
+}
+// --8<-- [end:client]
+
+// --8<-- [start:ui]
+const client = new ChatClient("wss://localhost:8080/ws");
+const statusEl = document.getElementById("status");
+const messagesEl = document.getElementById("messages");
+const nameEl = document.getElementById("name");
+const textEl = document.getElementById("text");
+
+// Tailwind classes per message kind — chat messages stay neutral, presence
+// events are color-coded with the Go brand palette.
+const MESSAGE_STYLES = {
+  chat: "px-3 py-2 text-sm text-gray-200",
+  join: "px-3 py-2 text-sm text-gopher-aqua",
+  left: "px-3 py-2 text-sm text-gray-500 italic",
+  disconnected: "px-3 py-2 text-sm text-gopher-fuchsia italic",
+};
+
+function addMessage(text, kind = "chat") {
+  const li = document.createElement("li");
+  li.textContent = text;
+  li.className = MESSAGE_STYLES[kind];
+  messagesEl.appendChild(li);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+client.addEventListener("connected", () => {
+  statusEl.textContent = "conectado";
+  statusEl.className = "font-semibold text-gopher-aqua";
+  document.getElementById("leaveBtn").disabled = false;
+  textEl.disabled = false;
+  document.getElementById("sendBtn").disabled = false;
+  // Resend the name on every connect (initial AND reconnect): the server
+  // assigns a new clientID per handshake, so it has no memory of who this
+  // socket used to be.
+  client.sendString(CmdSetName, nameEl.value || "guest");
+});
+
+client.addEventListener("disconnected", () => {
+  const reconnecting = !client.manuallyDisconnected;
+  statusEl.textContent = reconnecting ? "reconectando..." : "desconectado";
+  statusEl.className = reconnecting ? "font-semibold text-gopher-yellow" : "font-semibold text-gopher-fuchsia";
+  document.getElementById("leaveBtn").disabled = true;
+  textEl.disabled = true;
+  document.getElementById("sendBtn").disabled = true;
+});
+
+client.addEventListener("command", (ev) => {
+  const { commandId, payload } = ev.detail;
+  const json = JSON.parse(new TextDecoder().decode(payload));
+
+  switch (commandId) {
+    case CmdChat:
+      addMessage(`${json.from}: ${json.text}`, "chat");
+      break;
+    case CmdUserJoined:
+      addMessage(`${json.name} entrou`, "join");
+      break;
+    case CmdUserLeft:
+      addMessage(`${json.name} saiu`, "left");
+      break;
+    case CmdUserDisconnected:
+      addMessage(`${json.name} caiu (conexão perdida)`, "disconnected");
+      break;
+  }
+});
+
+document.getElementById("connectBtn").addEventListener("click", () => client.connect());
+document.getElementById("leaveBtn").addEventListener("click", () => client.disconnect());
+document.getElementById("sendBtn").addEventListener("click", () => {
+  if (!textEl.value) return;
+  client.sendString(CmdChat, textEl.value);
+  textEl.value = "";
+});
+textEl.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") document.getElementById("sendBtn").click();
+});
+// --8<-- [end:ui]
+</script>
+</body>
+</html>
