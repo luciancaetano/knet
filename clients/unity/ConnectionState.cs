@@ -1,9 +1,9 @@
 namespace Knet
 {
     /// <summary>
-    /// Represents the current state of a KNetClient connection.
+    /// Represents the current state of a Client connection.
     /// </summary>
-    public enum KNetConnectionState
+    public enum ConnectionState
     {
         /// <summary>Not connected and not attempting to connect.</summary>
         Disconnected,

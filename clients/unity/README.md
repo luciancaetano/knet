@@ -25,14 +25,16 @@ Copy the four `.cs` files into any folder inside your Unity project's `Assets/`
 directory (e.g. `Assets/Plugins/Knet/`):
 
 ```
-KNetConnectionState.cs
-KNetReservedCommands.cs
-KNetProtocol.cs
-KNetClient.cs
+ConnectionState.cs
+ReservedCommands.cs
+Protocol.cs
+Client.cs
+SyncVarAttribute.cs
 ```
 
 No Unity Package Manager entry or `.asmdef` is required, though you may add one
-if your project uses assembly definitions.
+if your project uses assembly definitions. All types live in the `Knet`
+namespace.
 
 ---
 
@@ -40,14 +42,14 @@ if your project uses assembly definitions.
 
 ### 1 — Add the component
 
-Attach `KNetClient` to any persistent `GameObject` (e.g. a dedicated
+Attach `Client` to any persistent `GameObject` (e.g. a dedicated
 `NetworkManager` object).
 
 ```csharp
 // Or create one at runtime:
 var go = new GameObject("KNetClient");
 DontDestroyOnLoad(go);
-var client = go.AddComponent<KNetClient>();
+var client = go.AddComponent<Client>();
 ```
 
 ### 2 — Configure
@@ -116,6 +118,34 @@ client.Disconnect(); // sends close frame; auto-reconnect is disabled permanentl
 
 ---
 
+## SyncVars
+
+Server-authoritative state that updates automatically. Mirror the server's
+`syncvar.SyncVar` (payloads are UTF-8 — e.g. `strconv.FormatFloat`).
+
+```csharp
+public class Position : MonoBehaviour
+{
+    private Client _client;
+
+    [SyncVar(0x0010, SyncVarType.Float32)] private float _x;
+    [SyncVar(0x0011, SyncVarType.Float32)] private float _y;
+
+    private async void Start()
+    {
+        _client = gameObject.AddComponent<Client>();
+        _client.BindSyncVars(this);   // bind BEFORE connecting
+        await _client.ConnectAsync();
+    }
+}
+```
+
+Each `[SyncVar]` field is assigned from the incoming payload whenever its
+command ID arrives. `SyncVarType` supports `Int32`, `Int64`, `Float32`,
+`Float64`, `Bool`, `String`.
+
+
+
 ## JSON-RPC
 
 The server supports JSON-RPC 2.0 for request-response style calls.
@@ -129,6 +159,11 @@ string raw = await client.SendJsonRpcAsync(
 
 // Parse the "result" field however you like:
 var resp = JsonUtility.FromJson<MyResponse>(raw);
+
+// Or use the generic overload — parses "result" for you:
+var score = await client.SendJsonRpcAsync<ScoreResult>(
+    method:     "getScore",
+    paramsJson: "{\"userId\": 42}");
 ```
 
 `SendJsonRpcAsync` throws:
@@ -140,7 +175,7 @@ var resp = JsonUtility.FromJson<MyResponse>(raw);
 
 ## JSON Serialisation Notes
 
-`KNetClient` has zero external dependencies and uses Unity's built-in
+`Client` has zero external dependencies and uses Unity's built-in
 `JsonUtility` for the narrow set of JSON it needs internally.
 
 For **sending** complex types (dictionaries, anonymous objects, nested lists)
@@ -176,10 +211,10 @@ string raw = await client.SendJsonRpcAsync("joinRoom", paramsJson);
 
 | Constant | Value | Purpose |
 |---|---|---|
-| `KNetReservedCommands.JsonRpc` | `0xFFFFFFFF` | JSON-RPC 2.0 envelope |
-| `KNetReservedCommands.JsonRpcError` | `0xFFFFFFFE` | JSON-RPC error response |
-| `KNetReservedCommands.InvalidCommand` | `0xFFFFFFFD` | Unknown command (server → client) |
-| `KNetReservedCommands.CommandError` | `0xFFFFFFFC` | Command processing error |
+| `ReservedCommands.JsonRpc` | `0xFFFFFFFF` | JSON-RPC 2.0 envelope |
+| `ReservedCommands.JsonRpcError` | `0xFFFFFFFE` | JSON-RPC error response |
+| `ReservedCommands.InvalidCommand` | `0xFFFFFFFD` | Unknown command (server → client) |
+| `ReservedCommands.CommandError` | `0xFFFFFFFC` | Command processing error |
 
 User-defined command IDs must be **below `0xFFFFFFFC`**.
 
@@ -209,11 +244,11 @@ using UnityEngine;
 
 public class GameNetworkManager : MonoBehaviour
 {
-    private KNetClient _client;
+    private Client _client;
 
     private async void Start()
     {
-        _client = gameObject.AddComponent<KNetClient>();
+        _client = gameObject.AddComponent<Client>();
         _client.Config.url   = "ws://localhost:8080/ws";
         _client.Config.debug = true;
 

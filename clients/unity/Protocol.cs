@@ -10,7 +10,7 @@ namespace Knet
     ///   [1..4]  CommandID — uint32, big-endian
     ///   [5..]   Payload   — arbitrary bytes (0 … MaxPayloadSize)
     /// </summary>
-    public static class KNetProtocol
+    public static class Protocol
     {
         /// <summary>Wire protocol version this client speaks (must match the server's protocol.CurrentVersion).</summary>
         public const byte CurrentVersion = 1;

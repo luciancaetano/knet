@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.WebSockets;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,11 +11,11 @@ using UnityEngine;
 namespace Knet
 {
     /// <summary>
-    /// Configuration for <see cref="KNetClient"/>.
+    /// Configuration for <see cref="Client"/>.
     /// Fields are exposed in the Unity Inspector when the client is added as a component.
     /// </summary>
     [Serializable]
-    public class KNetClientConfig
+    public class ClientConfig
     {
         [Tooltip("WebSocket server URL. Use ws:// for plain or wss:// for TLS.")]
         public string url = "ws://localhost:8080/ws";
@@ -47,7 +48,7 @@ namespace Knet
     ///
     /// <para><b>Quick start:</b></para>
     /// <code>
-    ///   var client = gameObject.AddComponent&lt;KNetClient&gt;();
+    ///   var client = gameObject.AddComponent&lt;Client&gt;();
     ///   client.Config.url   = "ws://localhost:8080/ws";
     ///   client.Config.debug = true;
     ///
@@ -67,14 +68,14 @@ namespace Knet
     /// on the <b>Unity main thread</b>, so they are safe to use with Unity APIs.
     /// </para>
     /// </summary>
-    public class KNetClient : MonoBehaviour
+    public class Client : MonoBehaviour
     {
         // -------------------------------------------------------------------------
         // Serialised configuration
         // -------------------------------------------------------------------------
 
         [SerializeField]
-        private KNetClientConfig config = new KNetClientConfig();
+        private ClientConfig config = new ClientConfig();
 
         // -------------------------------------------------------------------------
         // Public events (invoked on the Unity main thread)
@@ -97,7 +98,7 @@ namespace Knet
         // -------------------------------------------------------------------------
 
         private ClientWebSocket _ws;
-        private KNetConnectionState _state = KNetConnectionState.Disconnected;
+        private ConnectionState _state = ConnectionState.Disconnected;
         private readonly object _stateLock = new object();
 
         // Handlers registered with On(); accessed from both main thread and receive thread.
@@ -130,10 +131,10 @@ namespace Knet
         /// Direct access to the configuration object.
         /// Modify fields before calling <see cref="ConnectAsync"/>.
         /// </summary>
-        public KNetClientConfig Config => config;
+        public ClientConfig Config => config;
 
         /// <summary>Current connection state.</summary>
-        public KNetConnectionState State
+        public ConnectionState State
         {
             get { lock (_stateLock) { return _state; } }
         }
@@ -143,7 +144,7 @@ namespace Knet
         /// is open for sending and receiving messages.
         /// </summary>
         public bool IsConnected =>
-            State == KNetConnectionState.Connected &&
+            State == ConnectionState.Connected &&
             _ws != null &&
             _ws.State == WebSocketState.Open;
 
@@ -187,7 +188,7 @@ namespace Knet
         // -------------------------------------------------------------------------
 
         /// <summary>
-        /// Opens a WebSocket connection to <see cref="KNetClientConfig.url"/>.
+        /// Opens a WebSocket connection to <see cref="ClientConfig.url"/>.
         ///
         /// <para>Returns once the connection handshake succeeds.
         /// Throws if the connection cannot be established (e.g., timeout, refused).</para>
@@ -199,13 +200,13 @@ namespace Knet
         {
             lock (_stateLock)
             {
-                if (_state == KNetConnectionState.Connected ||
-                    _state == KNetConnectionState.Connecting)
+                if (_state == ConnectionState.Connected ||
+                    _state == ConnectionState.Connecting)
                 {
                     Log("Already connected or connecting.");
                     return;
                 }
-                _state = KNetConnectionState.Connecting;
+                _state = ConnectionState.Connecting;
             }
 
             Log($"Connecting to {config.url}...");
@@ -230,7 +231,7 @@ namespace Knet
 
                 lock (_stateLock)
                 {
-                    _state = KNetConnectionState.Connected;
+                    _state = ConnectionState.Connected;
                     _reconnectAttempts = 0;
                 }
 
@@ -268,7 +269,7 @@ namespace Knet
 
         private void ForceClose()
         {
-            lock (_stateLock) { _state = KNetConnectionState.Closed; }
+            lock (_stateLock) { _state = ConnectionState.Closed; }
             _reconnectTimer = -1f;
             _cts?.Cancel();
 
@@ -295,7 +296,7 @@ namespace Knet
         /// Registers a callback that is invoked (on the Unity main thread) whenever
         /// a message with <paramref name="commandId"/> is received.
         ///
-        /// <para>Command IDs &gt;= <see cref="KNetReservedCommands.CommandError"/>
+        /// <para>Command IDs &gt;= <see cref="ReservedCommands.CommandError"/>
         /// are reserved by the protocol and cannot be registered here.</para>
         /// </summary>
         /// <param name="commandId">The command to listen for.</param>
@@ -305,7 +306,7 @@ namespace Knet
         /// </param>
         public void On(uint commandId, Action<byte[]> handler)
         {
-            if (commandId >= KNetReservedCommands.CommandError)
+            if (commandId >= ReservedCommands.CommandError)
                 throw new ArgumentException(
                     $"Command ID 0x{commandId:X8} is reserved by the knet protocol.",
                     nameof(commandId));
@@ -321,9 +322,100 @@ namespace Knet
             Log($"Unregistered handler for command 0x{commandId:X8}.");
         }
 
+        /// <summary>
+        /// Binds all fields marked with <see cref="SyncVarAttribute"/> on
+        /// <paramref name="target"/> to incoming commands.
+        ///
+        /// <para>
+        /// Call once (e.g. in <c>Start()</c>). Each marked field is assigned from
+        /// the decoded payload whenever its command ID arrives.
+        /// </para>
+        /// </summary>
+        /// <param name="target">A MonoBehaviour (or plain object) with trailing
+        /// <c>[SyncVar]</c> fields.</param>
+        public void BindSyncVars(object target)
+        {
+            foreach (var field in target.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                var attr = field.GetCustomAttribute<SyncVarAttribute>();
+                if (attr == null) continue;
+
+                On(attr.CommandId, payload =>
+                {
+                    try
+                    {
+                        field.SetValue(target, DecodeSyncVar(attr.Type, payload));
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"SyncVar 0x{attr.CommandId:X8} decode failed: {ex.Message}");
+                    }
+                });
+
+                Log($"Bound SyncVar field '{field.Name}' to command 0x{attr.CommandId:X8}.");
+            }
+        }
+
+        private static object DecodeSyncVar(SyncVarType declared, byte[] payload)
+        {
+            if (payload.Length < 1)
+                throw new ArgumentException("sync var payload is empty.");
+
+            if ((byte)declared != payload[0])
+                throw new InvalidOperationException(
+                    $"sync var type mismatch: payload tag 0x{payload[0]:X2} does not match declared {declared}.");
+
+            var s = Encoding.UTF8.GetString(payload, 1, payload.Length - 1);
+            switch (declared)
+            {
+                case SyncVarType.Int32: return int.Parse(s);
+                case SyncVarType.Int64: return long.Parse(s);
+                case SyncVarType.Float32: return float.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
+                case SyncVarType.Float64: return double.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
+                case SyncVarType.Bool: return bool.Parse(s);
+                case SyncVarType.String: return s;
+                default: throw new ArgumentOutOfRangeException(nameof(declared), declared, null);
+            }
+        }
+
         // -------------------------------------------------------------------------
         // Sending
         // -------------------------------------------------------------------------
+
+        /// <summary>
+        /// Encodes and sends a sync var value as a tagged payload matching the
+        /// server's <c>syncvar</c> wire format (<c>[1-byte tag][value]</c>).
+        /// </summary>
+        /// <typeparam name="T">CLR type; only the six <see cref="SyncVarType"/>
+        /// categories are wire-compatible.</typeparam>
+        /// <param name="commandId">Command identifier.</param>
+        /// <param name="value">Value to send.</param>
+        /// <param name="ct">Optional cancellation token.</param>
+        public Task SendSyncVarAsync<T>(uint commandId, T value, CancellationToken ct = default)
+        {
+            var (type, text) = EncodeSyncVar(value);
+            var body = Encoding.UTF8.GetBytes(text);
+            var payload = new byte[1 + body.Length];
+            payload[0] = (byte)type;
+            Buffer.BlockCopy(body, 0, payload, 1, body.Length);
+            return SendAsync(commandId, payload, ct);
+        }
+
+        private static (SyncVarType type, string text) EncodeSyncVar<T>(T value)
+        {
+            switch (value)
+            {
+                case int i: return (SyncVarType.Int32, i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                case long l: return (SyncVarType.Int64, l.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                case float f: return (SyncVarType.Float32, f.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                case double d: return (SyncVarType.Float64, d.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                case bool b: return (SyncVarType.Bool, b.ToString().ToLowerInvariant());
+                case string s: return (SyncVarType.String, s);
+                default: throw new ArgumentException(
+                    $"sync var: unsupported type {typeof(T).Name}; wire supports Int32/Int64/Float32/Float64/Bool/String.",
+                    nameof(value));
+            }
+        }
 
         /// <summary>
         /// Encodes and sends a binary command to the server.
@@ -340,7 +432,7 @@ namespace Knet
                 throw new InvalidOperationException("Not connected to server.");
 
             payload ??= Array.Empty<byte>();
-            var encoded = KNetProtocol.Encode(commandId, payload);
+            var encoded = Protocol.Encode(commandId, payload);
 
             await _sendSemaphore.WaitAsync(ct).ConfigureAwait(false);
             try
@@ -433,7 +525,7 @@ namespace Knet
 
             try
             {
-                await SendStringAsync(KNetReservedCommands.JsonRpc, requestJson, ct)
+                await SendStringAsync(ReservedCommands.JsonRpc, requestJson, ct)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -443,6 +535,32 @@ namespace Knet
             }
 
             return await tcs.Task.ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sends a JSON-RPC 2.0 request and returns the deserialised <c>"result"</c> field.
+        ///
+        /// <para>
+        /// Convenience wrapper over <see cref="SendJsonRpcAsync(string,string,CancellationToken)"/>
+        /// that skips manual envelope parsing. Uses Unity's <c>JsonUtility</c>, so
+        /// <typeparamref name="TResult"/> must be a plain serialisable class/struct
+        /// (no dictionaries/arrays at the top level). For richer result shapes, call
+        /// the string-returning overload and parse with Newtonsoft yourself.
+        /// </para>
+        ///
+        /// <example>
+        /// <code>
+        /// var score = await client.SendJsonRpcAsync&lt;ScoreResult&gt;("getScore", "{\"userId\":42}");
+        /// </code>
+        /// </example>
+        /// </summary>
+        public async Task<TResult> SendJsonRpcAsync<TResult>(
+            string method,
+            string paramsJson = null,
+            CancellationToken ct = default)
+        {
+            var raw = await SendJsonRpcAsync(method, paramsJson, ct).ConfigureAwait(false);
+            return JsonUtility.FromJson<JsonRpcResultEnvelope<TResult>>(raw).result;
         }
 
         // -------------------------------------------------------------------------
@@ -516,15 +634,15 @@ namespace Knet
         {
             try
             {
-                var (commandId, payload) = KNetProtocol.Decode(data);
+                var (commandId, payload) = Protocol.Decode(data);
                 Log($"Received 0x{commandId:X8} ({payload.Length} bytes).");
 
-                if (commandId == KNetReservedCommands.JsonRpc ||
-                    commandId == KNetReservedCommands.JsonRpcError)
+                if (commandId == ReservedCommands.JsonRpc ||
+                    commandId == ReservedCommands.JsonRpcError)
                 {
                     HandleJsonRpcResponse(
                         payload,
-                        isError: commandId == KNetReservedCommands.JsonRpcError);
+                        isError: commandId == ReservedCommands.JsonRpcError);
                     return;
                 }
 
@@ -590,12 +708,12 @@ namespace Knet
             {
                 shouldReconnect =
                     config.autoReconnect &&
-                    _state != KNetConnectionState.Closed &&
+                    _state != ConnectionState.Closed &&
                     (config.maxReconnectAttempts == 0 ||
                      _reconnectAttempts < config.maxReconnectAttempts);
 
-                if (_state != KNetConnectionState.Closed)
-                    _state = KNetConnectionState.Disconnected;
+                if (_state != ConnectionState.Closed)
+                    _state = ConnectionState.Disconnected;
             }
 
             FailAllPendingRpc("Connection closed.");
@@ -614,12 +732,12 @@ namespace Knet
             {
                 shouldReconnect =
                     config.autoReconnect &&
-                    _state != KNetConnectionState.Closed &&
+                    _state != ConnectionState.Closed &&
                     (config.maxReconnectAttempts == 0 ||
                      _reconnectAttempts < config.maxReconnectAttempts);
 
-                if (_state != KNetConnectionState.Closed)
-                    _state = KNetConnectionState.Disconnected;
+                if (_state != ConnectionState.Closed)
+                    _state = ConnectionState.Disconnected;
             }
 
             FailAllPendingRpc(message);
@@ -636,8 +754,8 @@ namespace Knet
             _reconnectAttempts++;
             lock (_stateLock)
             {
-                if (_state != KNetConnectionState.Closed)
-                    _state = KNetConnectionState.Reconnecting;
+                if (_state != ConnectionState.Closed)
+                    _state = ConnectionState.Reconnecting;
             }
 
             // Backoff: delay × min(attempt, 5) — mirrors the JS client behaviour.
@@ -668,7 +786,7 @@ namespace Knet
         private void Log(string message)
         {
             if (config.debug)
-                Debug.Log($"[KNetClient] {message}");
+                Debug.Log($"[Client] {message}");
         }
 
         private static string EscapeJson(string s)
@@ -696,6 +814,14 @@ namespace Knet
             public string id;
             public JsonRpcErrorEnvelope error;
             // ReSharper restore InconsistentNaming
+#pragma warning restore 0649
+        }
+
+        [Serializable]
+        private class JsonRpcResultEnvelope<TResult>
+        {
+#pragma warning disable 0649
+            public TResult result;
 #pragma warning restore 0649
         }
 

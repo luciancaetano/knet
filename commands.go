@@ -3,8 +3,21 @@ package knet
 // Reserved command IDs for internal use.
 const (
 	// CmdJSONRPC is reserved for JSON-RPC 2.0 messages
-	CmdJSONRPC      uint32 = 0xFFFFFFFF
+	CmdJSONRPC uint32 = 0xFFFFFFFF
+
+	// CmdJSONRPCError is reserved for JSON-RPC 2.0 error responses
 	CmdJSONRPCError uint32 = 0xFFFFFFFE
+
+	// CmdInvalidCommand is reserved for server→client "unrecognised command ID" payloads.
+	// The current design silently drops unknown client commands instead of replying
+	// with this ID, so it is reserved for symmetry with the client Docs/protocol and
+	// may be emitted in future.
+	CmdInvalidCommand uint32 = 0xFFFFFFFD
+
+	// CmdError is reserved for server→client "command processing error" payloads.
+	// Reserved for parity with the client protocol definitions even though the
+	// server does not currently emit it.
+	CmdError uint32 = 0xFFFFFFFC
 )
 
 // Standard error messages

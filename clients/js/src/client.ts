@@ -47,11 +47,6 @@ export class KNetClient {
       connectionTimeoutMs: 10_000,
       ...config,
     };
-
-    // Ping/pong RTT contract: echo the 8-byte tick payload back unchanged.
-    this.onCommand(ReservedCommands.Ping, (payload) => {
-      void this.send(ReservedCommands.Ping, payload);
-    });
   }
 
   getState(): ConnectionState {

@@ -8,7 +8,6 @@ export const MAX_PAYLOAD_SIZE = 10 * 1024 * 1024;
 export const ReservedCommands = {
   JsonRpc: 0xffffffff,
   JsonRpcError: 0xfffffffe,
-  Ping: 0xfffffffd,
 } as const;
 
 export class UnsupportedVersionError extends Error {
