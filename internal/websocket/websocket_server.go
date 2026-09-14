@@ -488,7 +488,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	s.connCount.Add(1)
 	s.metrics.SetGauge("knet_conns_active", float64(s.connCount.Load()))
-	client := NewClient(conn, r.RemoteAddr, s.rateLimitConfig, s.pingInterval, sessionID)
+	payload := newConnectionPayload(r, conn.Subprotocol())
+	client := NewClient(conn, r.RemoteAddr, s.rateLimitConfig, s.pingInterval, sessionID, payload)
 	s.clients.Store(client.ID(), client)
 
 	s.clientWg.Add(1)

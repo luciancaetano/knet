@@ -36,6 +36,9 @@ const (
 	ErrContextCancelled     = "client context cancelled"
 	ErrFailedToEncode       = "failed to encode message"
 	ErrServerAlreadyRunning = "server already running"
+	ErrHeaderNotFound       = "header not found"
+	ErrParamNotFound        = "param not found"
+	ErrCookieNotFound       = "cookie not found"
 )
 
 // JSON-RPC error codes (following JSON-RPC 2.0 specification)

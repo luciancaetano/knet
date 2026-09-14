@@ -3,6 +3,8 @@ package websocket
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +16,62 @@ import (
 	"github.com/luciancaetano/knet"
 	"github.com/luciancaetano/knet/internal/protocol"
 )
+
+// connectionPayload is the concrete knet.ConnectionPayload implementation.
+// It is built once, from the HTTP upgrade request, and never mutated.
+type connectionPayload struct {
+	header      http.Header
+	query       url.Values
+	path        string
+	subprotocol string
+}
+
+// newConnectionPayload snapshots the handshake request. r's Header/URL are
+// not retained beyond what's copied here, so the *http.Request itself can be
+// discarded by the caller once the upgrade completes.
+func newConnectionPayload(r *http.Request, subprotocol string) connectionPayload {
+	return connectionPayload{
+		header:      r.Header,
+		query:       r.URL.Query(),
+		path:        r.URL.Path,
+		subprotocol: subprotocol,
+	}
+}
+
+func (p connectionPayload) GetHTTPHeader(name string) (string, error) {
+	values, ok := p.header[http.CanonicalHeaderKey(name)]
+	if !ok || len(values) == 0 {
+		return "", fmt.Errorf(knet.ErrHeaderNotFound)
+	}
+	return values[0], nil
+}
+
+func (p connectionPayload) GetParam(name string) (string, error) {
+	values, ok := p.query[name]
+	if !ok || len(values) == 0 {
+		return "", fmt.Errorf(knet.ErrParamNotFound)
+	}
+	return values[0], nil
+}
+
+func (p connectionPayload) GetCookie(name string) (string, error) {
+	req := http.Request{Header: p.header}
+	c, err := req.Cookie(name)
+	if err != nil {
+		return "", fmt.Errorf(knet.ErrCookieNotFound)
+	}
+	return c.Value, nil
+}
+
+func (p connectionPayload) Headers() http.Header { return p.header }
+
+func (p connectionPayload) Query() url.Values { return p.query }
+
+func (p connectionPayload) Path() string { return p.path }
+
+func (p connectionPayload) UserAgent() string { return p.header.Get("User-Agent") }
+
+func (p connectionPayload) Subprotocol() string { return p.subprotocol }
 
 // Client implements the knet.Client interface.
 type Client struct {
@@ -29,6 +87,7 @@ type Client struct {
 	serverClosed atomic.Bool // true when the server (not the remote peer) initiated close
 	rateLimiter  *rate.Limiter
 	pingInterval time.Duration
+	payload      connectionPayload
 }
 
 // NewClient creates a new WebSocket client.
@@ -39,7 +98,7 @@ type Client struct {
 // sessionID, if non-empty, is reused as the client ID (resume path) instead
 // of generating a new uuid — this is how a reconnecting client keeps the
 // same identity for Room membership purposes.
-func NewClient(conn *websocket.Conn, remoteAddr string, rateLimitConfig *RateLimitConfig, pingInterval time.Duration, sessionID string) *Client {
+func NewClient(conn *websocket.Conn, remoteAddr string, rateLimitConfig *RateLimitConfig, pingInterval time.Duration, sessionID string, payload connectionPayload) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var limiter *rate.Limiter
@@ -66,6 +125,7 @@ func NewClient(conn *websocket.Conn, remoteAddr string, rateLimitConfig *RateLim
 		closeCh:      make(chan []byte, 1),
 		rateLimiter:  limiter,
 		pingInterval: pingInterval,
+		payload:      payload,
 	}
 
 	// writePump is the SOLE goroutine allowed to write to client.conn.
@@ -175,6 +235,10 @@ func (c *Client) CloseWithCode(ctx context.Context, code int, reason string) err
 	c.cancel()
 	return nil
 }
+
+// ConnectionPayload returns a snapshot of the HTTP handshake that
+// established this connection.
+func (c *Client) ConnectionPayload() knet.ConnectionPayload { return c.payload }
 
 // IsAlive returns true if the connection has not been closed.
 func (c *Client) IsAlive() bool {

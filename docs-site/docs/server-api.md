@@ -112,6 +112,32 @@ Handlers receive a `knet.Client`:
 |--------|-------------|
 | `ID() string` | unique client/session ID |
 | `Send(ctx, commandID uint32, payload []byte) error` | send one message to this client |
+| `ConnectionPayload() knet.ConnectionPayload` | snapshot of the HTTP handshake that opened this connection — headers, query params, cookies, path, user-agent, negotiated subprotocol |
+
+### ConnectionPayload
+
+A read-only snapshot captured once, at the WebSocket upgrade. Not live — it never reflects anything that happens after the handshake, and carries no TLS info or HTTP method/proto (fixed by definition).
+
+| Method | Description |
+|--------|-------------|
+| `GetHTTPHeader(name string) (string, error)` | one header value, or `knet.ErrHeaderNotFound` |
+| `GetParam(name string) (string, error)` | one query string param, or `knet.ErrParamNotFound` |
+| `GetCookie(name string) (string, error)` | one cookie, or `knet.ErrCookieNotFound` |
+| `Headers() http.Header` | all handshake headers |
+| `Query() url.Values` | all query string params |
+| `Path() string` | handshake URL path, e.g. `/ws` |
+| `UserAgent() string` | `User-Agent` header, or `""` |
+| `Subprotocol() string` | negotiated `Sec-WebSocket-Protocol`, or `""` |
+
+```go
+func onConnect(client knet.Client) bool {
+	token, err := client.ConnectionPayload().GetHTTPHeader("Authorization")
+	if err != nil {
+		return false // reject: no auth header
+	}
+	return validateToken(token)
+}
+```
 
 ## Broadcasting
 

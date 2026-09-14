@@ -1,6 +1,10 @@
 package knet
 
-import "context"
+import (
+	"context"
+	"net/http"
+	"net/url"
+)
 
 // HandlerFunc is the signature of a binary-command message handler.
 // Handlers are registered via [Server.RegisterHandler] and executed
@@ -190,4 +194,44 @@ type Client interface {
 	//	    client.Send(ctx, data)
 	//	}
 	IsAlive() bool
+
+	// ConnectionPayload returns a snapshot of the HTTP handshake that
+	// established this connection (headers, query, cookies, path, etc).
+	ConnectionPayload() ConnectionPayload
+}
+
+// ConnectionPayload exposes metadata captured from the original HTTP
+// upgrade request that established the WebSocket connection.
+//
+// This is only a snapshot of the handshake — it does not update as the
+// connection lives on, and does not include TLS details or the HTTP
+// method/proto (fixed to GET/websocket upgrade by definition).
+type ConnectionPayload interface {
+	// GetHTTPHeader returns the named request header, or ErrHeaderNotFound
+	// if it was not present in the handshake.
+	GetHTTPHeader(name string) (string, error)
+
+	// GetParam returns the named query string parameter, or ErrParamNotFound
+	// if it was not present in the handshake URL.
+	GetParam(name string) (string, error)
+
+	// GetCookie returns the named cookie from the handshake request, or
+	// ErrCookieNotFound if it was not present.
+	GetCookie(name string) (string, error)
+
+	// Headers returns all headers from the handshake request.
+	Headers() http.Header
+
+	// Query returns all query string parameters from the handshake URL.
+	Query() url.Values
+
+	// Path returns the URL path used for the handshake (e.g. "/ws").
+	Path() string
+
+	// UserAgent returns the "User-Agent" header, or "" if absent.
+	UserAgent() string
+
+	// Subprotocol returns the WebSocket subprotocol negotiated during the
+	// handshake (via Sec-WebSocket-Protocol), or "" if none was negotiated.
+	Subprotocol() string
 }

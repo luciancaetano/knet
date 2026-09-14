@@ -17,10 +17,11 @@ type fakeClient struct {
 	closed bool
 }
 
-func (c *fakeClient) ID() string               { return c.id }
-func (c *fakeClient) RemoteAddr() string       { return "127.0.0.1:0" }
-func (c *fakeClient) Context() context.Context { return context.Background() }
-func (c *fakeClient) IsAlive() bool            { return !c.closed }
+func (c *fakeClient) ID() string                                { return c.id }
+func (c *fakeClient) RemoteAddr() string                        { return "127.0.0.1:0" }
+func (c *fakeClient) Context() context.Context                  { return context.Background() }
+func (c *fakeClient) IsAlive() bool                             { return !c.closed }
+func (c *fakeClient) ConnectionPayload() knet.ConnectionPayload { return nil }
 func (c *fakeClient) Close(ctx context.Context) error {
 	c.closed = true
 	return nil

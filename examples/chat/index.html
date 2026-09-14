@@ -30,7 +30,7 @@
 <div class="max-w-xl mx-auto py-10 px-4">
 
   <header class="flex items-center gap-3 mb-6">
-    <img src="knet-dog.png" alt="knet mascot" class="w-12 h-12 rounded-full ring-2 ring-gopher-blue object-cover">
+    <img src="knet-dog.png" alt="knet mascot" class="w-20 h-20 rounded-full ring-2 ring-gopher-blue object-contain bg-white p-1">
     <div>
       <h1 class="text-xl font-bold text-white">knet chat example</h1>
       <p class="text-sm text-gray-400">
@@ -103,6 +103,21 @@ const CmdUserLeft = 0x0004;
 const CmdUserDisconnected = 0x0005;
 // --8<-- [end:commands]
 
+// --8<-- [start:close-reason]
+// WebSocket never exposes *why* a connection failed (spec: onerror carries
+// no code/message, for security). onclose's `code` + how fast it fired are
+// the only signal we get, so turn that into a human-readable guess.
+function describeCloseReason(ev, neverOpened, url) {
+  if (!neverOpened) return null; // dropped after a working connection — not a handshake problem
+  if (ev.code === 1015) return "certificado TLS recusado pelo navegador";
+  if (ev.code === 1006 && url.startsWith("wss://")) {
+    const httpsUrl = url.replace(/^wss:/, "https:").replace(/\/ws$/, "");
+    return `TLS/handshake falhou — provavelmente o certificado autoassinado ainda não foi aceito. Abra ${httpsUrl} numa aba, aceite o aviso, e tente de novo.`;
+  }
+  return `fechado com código ${ev.code}`;
+}
+// --8<-- [end:close-reason]
+
 // --8<-- [start:client]
 // Minimal vanilla WebSocket wrapper with auto-reconnect. The published
 // wire format is simple enough that a real client library isn't required
@@ -118,6 +133,7 @@ class ChatClient extends EventTarget {
 
   connect() {
     this.manuallyDisconnected = false;
+    const connectStartedAt = performance.now();
     this.ws = new WebSocket(this.url);
     this.ws.binaryType = "arraybuffer";
 
@@ -131,8 +147,13 @@ class ChatClient extends EventTarget {
       this.dispatchEvent(new CustomEvent("command", { detail: { commandId, payload } }));
     };
 
-    this.ws.onclose = () => {
-      this.dispatchEvent(new Event("disconnected"));
+    // The WebSocket spec never exposes a reason on `onerror` (browser
+    // security policy hides it). `onclose` always fires right after with a
+    // status code, so we infer the likely cause from that + timing instead.
+    this.ws.onclose = (ev) => {
+      const neverOpened = this.reconnectAttempt === 0 && performance.now() - connectStartedAt < 1000;
+      const hint = describeCloseReason(ev, neverOpened, this.url);
+      this.dispatchEvent(new CustomEvent("disconnected", { detail: { hint } }));
       if (!this.manuallyDisconnected) this.scheduleReconnect();
     };
   }
@@ -193,9 +214,10 @@ client.addEventListener("connected", () => {
   client.sendString(CmdSetName, nameEl.value || "guest");
 });
 
-client.addEventListener("disconnected", () => {
+client.addEventListener("disconnected", (ev) => {
   const reconnecting = !client.manuallyDisconnected;
-  statusEl.textContent = reconnecting ? "reconectando..." : "desconectado";
+  const hint = ev.detail?.hint;
+  statusEl.textContent = hint ? `erro: ${hint}` : (reconnecting ? "reconectando..." : "desconectado");
   statusEl.className = reconnecting ? "font-semibold text-gopher-yellow" : "font-semibold text-gopher-fuchsia";
   document.getElementById("leaveBtn").disabled = true;
   textEl.disabled = true;

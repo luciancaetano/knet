@@ -32,6 +32,7 @@ func newChatServer() *chatServer {
 // after connecting (see the web client), so we don't broadcast "joined" here.
 func (s *chatServer) onConnect(client knet.Client) bool {
 	s.lobby.Add(client)
+	log.Printf("client connected: id=%s addr=%s", client.ID(), client.RemoteAddr())
 	return true // true = accept the connection
 }
 
@@ -50,8 +51,10 @@ func (s *chatServer) onDisconnect(client knet.Client, voluntary bool) {
 	s.lobby.Remove(client.ID())
 
 	if voluntary {
+		log.Printf("client left: id=%s addr=%s name=%q", client.ID(), client.RemoteAddr(), name)
 		s.broadcastPresence(context.Background(), CmdUserLeft, name)
 	} else {
+		log.Printf("client disconnected: id=%s addr=%s name=%q", client.ID(), client.RemoteAddr(), name)
 		s.broadcastPresence(context.Background(), CmdUserDisconnected, name)
 	}
 }
