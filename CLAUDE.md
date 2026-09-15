@@ -36,7 +36,7 @@ Test layout mirrors this split: `tests/unit`, `tests/e2e`, `tests/stress` (separ
 
 `examples/` holds runnable consumers per client target: `chat/` (Go server + `js/` client over `wss://` with a generated dev cert, run via `make chat`), `unity/` (Unity client), `metrics-prometheus/`, `stress-echo/`, `wss-echo/`.
 
-Docs: `doc.go` is the package-level godoc (protocol format, quick start). `docs-site/` + `mkdocs.yml` build the mkdocs site (`make docs`); README.md is the canonical protocol/config/API reference — check it before re-deriving usage examples.
+Docs: `doc.go` is the package-level godoc (protocol format, quick start). `docs-site/` + `mkdocs.yml` build the mkdocs site (`make docs`, served at https://luciancaetano.github.io/knet/); README.md is the canonical protocol/config/API reference — check it before re-deriving usage examples.
 
 ## Commits
 

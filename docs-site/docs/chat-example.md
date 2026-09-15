@@ -1,188 +1,188 @@
 # Chat Example (JS)
 
-Tutorial completo, passo a passo, para construir um chat multiusuário com `room` (Go) no servidor e um cliente HTML/JavaScript puro. O código deste tutorial é real e roda — está em [`examples/chat/`](https://github.com/luciancaetano/knet/tree/main/examples/chat) no repositório.
+Full, step-by-step tutorial for building a multi-user chat with `room` (Go) on the server and a plain HTML/JavaScript client. The code in this tutorial is real and runs — it's in [`examples/chat/`](https://github.com/luciancaetano/knet/tree/main/examples/chat) in the repository.
 
-## 1. Visão geral
+## 1. Overview
 
-Vamos construir:
+We'll build:
 
-- um servidor Go que agrupa todos os clientes numa `room` chamada `"lobby"`
-- broadcast de mensagens de chat para todos na sala
-- notificações automáticas de quem entra e quem sai
-- reconexão automática do lado do cliente
-- a peça mais importante: distinguir quando alguém **saiu de propósito** (clicou em "Sair") de quando **caiu sem querer** (rede caiu, aba travou, timeout)
+- a Go server that groups all clients into a `room` called `"lobby"`
+- broadcasting of chat messages to everyone in the room
+- automatic notifications of who joins and who leaves
+- automatic reconnection on the client side
+- the most important piece: distinguishing when someone **left on purpose** (clicked "Leave") from when they **dropped unexpectedly** (network went down, tab froze, timeout)
 
-### Protocolo
+### Protocol
 
-| ID | Direção | Payload | Propósito |
+| ID | Direction | Payload | Purpose |
 |---|---|---|---|
-| `0x0001` SetName | client → server | texto (nome desejado) | define/atualiza o nome ao conectar ou reconectar |
-| `0x0002` Chat | client → server → sala | JSON `{"from","text"}` | mensagem de chat |
-| `0x0003` UserJoined | server → sala | JSON `{"name"}` | alguém entrou |
-| `0x0004` UserLeft | server → sala | JSON `{"name"}` | alguém saiu **voluntariamente** |
-| `0x0005` UserDisconnected | server → sala | JSON `{"name"}` | alguém caiu **sem querer** |
+| `0x0001` SetName | client → server | text (desired name) | sets/updates the name on connect or reconnect |
+| `0x0002` Chat | client → server → room | JSON `{"from","text"}` | chat message |
+| `0x0003` UserJoined | server → room | JSON `{"name"}` | someone joined |
+| `0x0004` UserLeft | server → room | JSON `{"name"}` | someone left **voluntarily** |
+| `0x0005` UserDisconnected | server → room | JSON `{"name"}` | someone dropped **unexpectedly** |
 
-## 2. Servidor Go passo a passo
+## 2. Go server, step by step
 
-O servidor é organizado em 4 arquivos, cada um com uma responsabilidade — não é um único `main.go` monolítico:
+The server is organized into 4 files, each with a single responsibility — not one monolithic `main.go`:
 
 ```
 examples/chat/
-├── protocol.go   # command IDs e tipos de payload (JSON)
-├── names.go      # armazenamento de nome por clientID
-├── server.go     # chatServer: OnConnect/OnDisconnect e handlers
-└── main.go       # bootstrap: monta o ws.Server e registra tudo
+├── protocol.go   # command IDs and payload types (JSON)
+├── names.go      # name storage keyed by clientID
+├── server.go     # chatServer: OnConnect/OnDisconnect and handlers
+└── main.go       # bootstrap: assembles the ws.Server and registers everything
 ```
 
-### 2.1 `protocol.go` — Command IDs e payloads
+### 2.1 `protocol.go` — Command IDs and payloads
 
-Definimos os IDs do protocolo do chat como constantes, e os formatos JSON usados nos payloads. IDs de aplicação precisam ficar abaixo de `0xFFFFFFFC` — essa faixa é reservada pelo knet (veja [Reference](reference.md#reserved-command-ids)).
+We define the chat protocol's IDs as constants, along with the JSON formats used in the payloads. Application IDs must stay below `0xFFFFFFFC` — that range is reserved by knet (see [Reference](reference.md#reserved-command-ids)).
 
 ```go
 --8<-- "examples/chat/protocol.go:commands"
 ```
 
-### 2.2 `names.go` — Guardando o nome de cada cliente
+### 2.2 `names.go` — Storing each client's name
 
-O `knet.Client` não guarda estado de aplicação — só identidade de conexão (`ID()`, `RemoteAddr()`, etc). Então o servidor mantém seu próprio mapa `clientID -> nome`, isolado num tipo dedicado (`nameStore`) e protegido por mutex, já que handlers rodam em goroutines concorrentes.
+`knet.Client` doesn't store application state — only connection identity (`ID()`, `RemoteAddr()`, etc). So the server keeps its own `clientID -> name` map, isolated in a dedicated type (`nameStore`) and protected by a mutex, since handlers run on concurrent goroutines.
 
 ```go
 --8<-- "examples/chat/names.go:names"
 ```
 
-### 2.3 `server.go` — o tipo `chatServer`
+### 2.3 `server.go` — the `chatServer` type
 
-Toda a lógica do chat vive em métodos de um único tipo, `chatServer`, que guarda a `room` e o `nameStore`. Isso evita variáveis soltas capturadas por closures espalhadas — cada handler é só um método com acesso explícito ao estado que precisa.
+All the chat logic lives in methods of a single type, `chatServer`, which holds the `room` and the `nameStore`. This avoids loose variables captured by scattered closures — each handler is just a method with explicit access to the state it needs.
 
 ```go
 --8<-- "examples/chat/server.go:server-type"
 ```
 
-Uma única `room.Room` chamada `"lobby"` já dá tudo que precisamos: `Add`, `Remove`, `Broadcast` — sem laços manuais sobre clientes, o `Broadcast` da room já é a forma otimizada de enviar para todo mundo.
+A single `room.Room` called `"lobby"` already gives us everything we need: `Add`, `Remove`, `Broadcast` — no manual loops over clients, the room's `Broadcast` is already the optimized way to send to everyone.
 
-### 2.4 `OnConnect` e `OnDisconnect` — o coração do exemplo
+### 2.4 `OnConnect` and `OnDisconnect` — the heart of the example
 
 ```go
 --8<-- "examples/chat/server.go:connect"
 ```
 
-`OnConnect` recebe o `knet.Client` assim que a conexão WebSocket é aceita, e retorna `bool`: `true` aceita a conexão, `false` rejeita (fecha com "policy violation"). Aqui só adicionamos o cliente à sala — ele ainda não tem nome, que chega em seguida via `SetName`.
+`OnConnect` receives the `knet.Client` as soon as the WebSocket connection is accepted, and returns `bool`: `true` accepts the connection, `false` rejects it (closes with "policy violation"). Here we only add the client to the room — it doesn't have a name yet, which arrives next via `SetName`.
 
-`OnDisconnect` é onde a mágica acontece: `func(client knet.Client, voluntary bool)`. O parâmetro `voluntary` já vem calculado pelo knet:
+`OnDisconnect` is where the magic happens: `func(client knet.Client, voluntary bool)`. The `voluntary` parameter comes already computed by knet:
 
-- `voluntary == true` → o cliente fechou a conexão normalmente (mandou um close frame real — por exemplo, o usuário clicou em "Sair" e o JS chamou `disconnect()`)
-- `voluntary == false` → a conexão caiu sem um close limpo (queda de rede, aba fechada à força, timeout de leitura)
+- `voluntary == true` → the client closed the connection normally (sent a real close frame — e.g., the user clicked "Leave" and the JS called `disconnect()`)
+- `voluntary == false` → the connection dropped without a clean close (network outage, tab force-closed, read timeout)
 
-Não precisamos de nenhuma mensagem de aplicação tipo `"estou saindo"` — o servidor já sabe a diferença nativamente, e usamos isso direto para escolher entre `UserLeft` e `UserDisconnected`.
+We don't need any application message like `"I'm leaving"` — the server already knows the difference natively, and we use that directly to choose between `UserLeft` and `UserDisconnected`.
 
-### 2.5 Handler `SetName`
+### 2.5 `SetName` handler
 
 ```go
 --8<-- "examples/chat/server.go:setname-handler"
 ```
 
-O `UserJoined` só é emitido aqui, depois que o cliente manda um nome — no `OnConnect` ainda não temos como identificá-lo na UI.
+`UserJoined` is only emitted here, after the client sends a name — in `OnConnect` we still have no way to identify them in the UI.
 
-### 2.6 Handler `Chat`
+### 2.6 `Chat` handler
 
 ```go
 --8<-- "examples/chat/server.go:chat-handler"
 ```
 
-Simples: pega o nome do remetente, embrulha em JSON com o texto, e faz broadcast pra sala inteira — incluindo o próprio remetente (assim o remetente também vê sua mensagem aparecer pela mesma via que os outros).
+Simple: grab the sender's name, wrap it in JSON with the text, and broadcast to the whole room — including the sender itself (so the sender also sees their message appear the same way as everyone else).
 
-### 2.7 Servindo `index.html` — e por que `wss://`
+### 2.7 Serving `index.html` — and why `wss://`
 
-Um navegador que carrega a página por `https://` só tem permissão de abrir sockets `wss://` (não `ws://`) — é a mesma regra de "conteúdo misto" que se aplica a `<img>`/`fetch`. Em vez de ensinar um setup que quebra assim que você sobe pra produção atrás de TLS, este exemplo já roda com TLS desde o início, usando um certificado autoassinado de desenvolvimento.
+A browser that loads the page over `https://` is only allowed to open `wss://` sockets (not `ws://`) — it's the same "mixed content" rule that applies to `<img>`/`fetch`. Rather than teaching a setup that breaks the moment you deploy behind TLS in production, this example already runs with TLS from the start, using a self-signed development certificate.
 
-`main.go` sobe um segundo `http.Server` (`serveStatic`), só pra servir `index.html` e o mascote, numa porta separada da porta do WebSocket:
+`main.go` spins up a second `http.Server` (`serveStatic`), just to serve `index.html` and the mascot, on a port separate from the WebSocket port:
 
 ```go
 --8<-- "examples/chat/main.go:static-server"
 ```
 
-### 2.8 `main.go` — montando o servidor
+### 2.8 `main.go` — assembling the server
 
-`main.go` fica enxuto: cria o `chatServer`, monta a config do `ws.Server` com `ws.WithTLS` (habilita `wss://`) apontando `OnConnect`/`OnDisconnect` para os métodos de `chatServer`, registra os dois handlers de comando, sobe o servidor estático, e sobe com graceful shutdown.
+`main.go` stays lean: it creates the `chatServer`, builds the `ws.Server` config with `ws.WithTLS` (enables `wss://`) pointing `OnConnect`/`OnDisconnect` at the `chatServer` methods, registers the two command handlers, starts the static server, and boots with graceful shutdown.
 
 ```go
 --8<-- "examples/chat/main.go:bootstrap"
 ```
 
-O certificado (`cert.pem`/`key.pem`) é gerado automaticamente por `make chat-example` — veja a seção [Rodando o exemplo](#6-rodando-o-exemplo).
+The certificate (`cert.pem`/`key.pem`) is generated automatically by `make chat-example` — see the [Running the example](#6-running-the-example) section.
 
-## 3. Cliente Web passo a passo
+## 3. Web client, step by step
 
-O cliente é um único `index.html`, sem build step. Ele usa o cliente oficial [`@lcaetano/knet-client`](js-client.md), carregado direto de um CDN via ESM — nada de reimplementar wire format ou reconexão à mão.
+The client is a single `index.html`, with no build step. It uses the official [`@lcaetano/knet-client`](js-client.md) client, loaded directly from a CDN via ESM — no reimplementing the wire format or reconnection by hand.
 
-### 3.1 Importando o cliente oficial
+### 3.1 Importing the official client
 
 ```js
 --8<-- "examples/chat/index.html:import"
 ```
 
-`esm.sh` serve o pacote publicado no npm como módulo ES puro, então basta um `<script type="module">` — sem bundler, sem `node_modules`. O wire format (`[1B versão][4B BE commandID][payload]`) e a reconexão automática já vêm resolvidos pelo `KNetClient` (veja [JS Client](js-client.md#wire-format)).
+`esm.sh` serves the package published on npm as a pure ES module, so all you need is a `<script type="module">` — no bundler, no `node_modules`. The wire format (`[1B version][4B BE commandID][payload]`) and automatic reconnection are already handled by `KNetClient` (see [JS Client](js-client.md#wire-format)).
 
-### 3.2 Command IDs no cliente
+### 3.2 Command IDs on the client
 
 ```js
 --8<-- "examples/chat/index.html:commands"
 ```
 
-### 3.3 Ligando tudo na UI
+### 3.3 Wiring it all up in the UI
 
 ```js
 --8<-- "examples/chat/index.html:ui"
 ```
 
-Pontos importantes:
+Important points:
 
-- `client.connect()` abre o socket; o próprio `KNetClient` agenda reconexão automática a menos que `client.disconnect()` tenha sido chamado antes
-- `client.disconnect()` desliga o auto-reconnect e fecha com um close frame normal, o que faz o servidor ver `voluntary = true` — por isso a UI guarda `leftVoluntarily` só para decidir a mensagem de status exibida, não para controlar a reconexão em si
-- o backoff de reconexão padrão do cliente é `delay = reconnectDelayMs × min(tentativa, 5)` (veja [JS Client → Reconnect](js-client.md#reconnect))
-- `client.on("connected", ...)`, `client.on("disconnected", ...)` e `client.onCommand(id, ...)` substituem os `addEventListener` do wrapper manual anterior
+- `client.connect()` opens the socket; `KNetClient` itself schedules automatic reconnection unless `client.disconnect()` was called beforehand
+- `client.disconnect()` turns off auto-reconnect and closes with a normal close frame, which makes the server see `voluntary = true` — that's why the UI keeps `leftVoluntarily` only to decide which status message to show, not to control reconnection itself
+- the client's default reconnection backoff is `delay = reconnectDelayMs × min(attempt, 5)` (see [JS Client → Reconnect](js-client.md#reconnect))
+- `client.on("connected", ...)`, `client.on("disconnected", ...)`, and `client.onCommand(id, ...)` replace the manual wrapper's `addEventListener` calls
 
-## 4. Reconexão na prática
+## 4. Reconnection in practice
 
-Quando a conexão cai e reconecta automaticamente, o servidor atribui um **novo `clientID`** ao handshake — ele não tem memória de que esse é "o mesmo usuário" de antes. Por isso o evento `connected` sempre reenvia `SetName`, tanto na conexão inicial quanto em toda reconexão: sem isso, o servidor teria um cliente sem nome registrado, e as próximas mensagens de chat apareceriam com o próprio ID como remetente.
+When the connection drops and reconnects automatically, the server assigns a **new `clientID`** to the handshake — it has no memory that this is "the same user" as before. That's why the `connected` event always resends `SetName`, both on the initial connection and on every reconnect: without it, the server would have a client with no registered name, and subsequent chat messages would show up with the ID itself as the sender.
 
-## 5. Saída voluntária vs. involuntária
+## 5. Voluntary vs. involuntary exit
 
-Esse é o requisito mais delicado do chat, e o knet resolve pra você:
+This is the chat's trickiest requirement, and knet solves it for you:
 
-| Ação do usuário | O que o servidor vê | Evento emitido |
+| User action | What the server sees | Event emitted |
 |---|---|---|
-| Clica em "Sair" | Close frame WebSocket normal | `UserLeft` (`voluntary = true`) |
-| Fecha a aba do navegador | Geralmente um close frame também é enviado pelo browser | `UserLeft` na maioria dos casos |
-| Perde conexão de rede (Wi-Fi cai, processo travado, cabo desconectado) | Nenhum close frame chega; o servidor detecta via timeout de leitura | `UserDisconnected` (`voluntary = false`) |
-| Processo do cliente é morto (`kill -9`, crash) | Nenhum close frame | `UserDisconnected` (`voluntary = false`) |
+| Clicks "Leave" | Normal WebSocket close frame | `UserLeft` (`voluntary = true`) |
+| Closes the browser tab | A close frame is usually sent by the browser too | `UserLeft` in most cases |
+| Loses network connection (Wi-Fi drops, process frozen, cable unplugged) | No close frame arrives; the server detects it via read timeout | `UserDisconnected` (`voluntary = false`) |
+| Client process is killed (`kill -9`, crash) | No close frame | `UserDisconnected` (`voluntary = false`) |
 
-Não há nenhum código de aplicação decidindo isso — é o parâmetro `voluntary` do `OnDisconnect` (seção [2.4](#24-onconnect-e-ondisconnect-o-coracao-do-exemplo)) que carrega essa informação, calculada pelo próprio protocolo WebSocket (recebimento ou não de um close frame válido).
+There's no application code deciding this — it's the `voluntary` parameter of `OnDisconnect` (section [2.4](#24-onconnect-and-ondisconnect-the-heart-of-the-example)) that carries this information, computed by the WebSocket protocol itself (whether or not a valid close frame was received).
 
-## 6. Rodando o exemplo
+## 6. Running the example
 
 ```bash
 make chat-example
 ```
 
-Isso primeiro gera um certificado autoassinado de desenvolvimento (`examples/chat/cert.pem` + `key.pem`, via `openssl`, se ainda não existir — veja o target `chat-example-certs` no `Makefile`) e depois sobe o servidor:
+This first generates a self-signed development certificate (`examples/chat/cert.pem` + `key.pem`, via `openssl`, if it doesn't already exist — see the `chat-example-certs` target in the `Makefile`) and then starts the server:
 
 - WebSocket: `wss://localhost:8080/ws`
-- Página do chat: `https://localhost:8081`
+- Chat page: `https://localhost:8081`
 
-(Equivalente manual, sem o Makefile: `cd examples/chat && go run .` — mas os `.pem` precisam existir antes.)
+(Manual equivalent, without the Makefile: `cd examples/chat && go run .` — but the `.pem` files need to exist beforehand.)
 
-Como o certificado é autoassinado, o navegador vai alertar de "conexão não seguridade" na primeira visita a cada uma das duas origens (`:8080` e `:8081`) — é esperado em desenvolvimento; aceite o aviso em ambas. Em produção, prefira terminar TLS num proxy reverso (nginx, Caddy) com um certificado real, como descrito em `ws.WithTLS`.
+Since the certificate is self-signed, the browser will warn about an "insecure connection" on the first visit to each of the two origins (`:8080` and `:8081`) — this is expected in development; accept the warning on both. In production, prefer terminating TLS at a reverse proxy (nginx, Caddy) with a real certificate, as described in `ws.WithTLS`.
 
-Abra `https://localhost:8081` em duas abas:
+Open `https://localhost:8081` in two tabs:
 
-1. Em cada aba, digite um nome diferente e clique em **Conectar**
-2. Troque mensagens — elas aparecem nas duas abas
-3. Numa aba, clique em **Sair** → a outra aba mostra `"<nome> saiu"`
-4. Na outra aba, apenas feche a aba do navegador ou desligue a rede → depois do timeout de leitura, você verá `"<nome> caiu (conexão perdida)"` (pode levar alguns segundos, dependendo do `readDeadline` configurado no servidor)
+1. In each tab, type a different name and click **Connect**
+2. Exchange messages — they appear in both tabs
+3. In one tab, click **Leave** → the other tab shows `"<name> left"`
+4. In the other tab, just close the browser tab or turn off the network → after the read timeout, you'll see `"<name> dropped (connection lost)"` (this can take a few seconds, depending on the `readDeadline` configured on the server)
 
-## 7. Próximos passos
+## 7. Next steps
 
-- [Rooms & Observer](rooms-observer.md) — mais de uma sala, interest management
-- [JavaScript Client](js-client.md) — referência completa do `KNetClient`: JSON-RPC, sync vars, reconexão configurável e mais
-- [Server API](server-api.md) — configuração completa do servidor, rate limiting, segurança
+- [Rooms & Observer](rooms-observer.md) — more than one room, interest management
+- [JavaScript Client](js-client.md) — full reference for `KNetClient`: JSON-RPC, sync vars, configurable reconnection, and more
+- [Server API](server-api.md) — full server configuration, rate limiting, security
