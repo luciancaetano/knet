@@ -113,7 +113,7 @@ O certificado (`cert.pem`/`key.pem`) é gerado automaticamente por `make chat-ex
 
 ## 3. Cliente Web passo a passo
 
-O cliente é um único `index.html`, sem build step. O pacote `@knet/client` ainda não está publicado num CDN, então este exemplo implementa um wrapper vanilla mínimo — o que também serve para mostrar como o protocolo é simples.
+O cliente é um único `index.html`, sem build step. O pacote `@lcaetano/knet-client` ainda não está publicado num CDN, então este exemplo implementa um wrapper vanilla mínimo — o que também serve para mostrar como o protocolo é simples.
 
 ### 3.1 O wire format
 

@@ -1,17 +1,17 @@
 # JS Client
 
-`@knet/client` — browser WebSocket client for the knet protocol. Zero runtime dependencies. Mirrors the [Unity client](unity-client.md) feature-for-feature.
+`@lcaetano/knet-client` — browser WebSocket client for the knet protocol. Zero runtime dependencies. Mirrors the [Unity client](unity-client.md) feature-for-feature.
 
 ## Install
 
 ```bash
-npm install @knet/client
+npm install @lcaetano/knet-client
 ```
 
 ## Quick start
 
 ```ts
-import { KNetClient } from "@knet/client";
+import { KNetClient } from "@lcaetano/knet-client";
 
 const client = new KNetClient({ url: "ws://localhost:8080/ws" });
 

@@ -61,11 +61,11 @@ Connect with a client. Both echo `EchoCmd` (`0x0001`) back and forth with the se
 === "JavaScript"
 
     ```bash
-    npm install @knet/client
+    npm install @lcaetano/knet-client
     ```
 
     ```ts
-    import { KNetClient } from "@knet/client";
+    import { KNetClient } from "@lcaetano/knet-client";
 
     const client = new KNetClient({ url: "ws://localhost:8080/ws" });
 

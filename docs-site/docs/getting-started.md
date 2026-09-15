@@ -51,14 +51,14 @@ go run .
 
 ## 3. Connect a client
 
-Any WebSocket client works if it speaks the [wire format](reference.md#wire-format). The maintained option is `@knet/client` for JS/TS:
+Any WebSocket client works if it speaks the [wire format](reference.md#wire-format). The maintained option is `@lcaetano/knet-client` for JS/TS:
 
 ```bash
-npm install @knet/client
+npm install @lcaetano/knet-client
 ```
 
 ```ts
-import { KNetClient } from "@knet/client";
+import { KNetClient } from "@lcaetano/knet-client";
 
 const client = new KNetClient({ url: "ws://localhost:8080/ws" });
 

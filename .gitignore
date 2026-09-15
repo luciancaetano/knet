@@ -33,3 +33,5 @@ go.work.sum
 
 .knowledge_source/site/
 .venv/
+clients/js/dist/
+clients/js/.npmrc

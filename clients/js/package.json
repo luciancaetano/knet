@@ -1,5 +1,5 @@
 {
-  "name": "@knet/client",
+  "name": "@lcaetano/knet-client",
   "version": "0.1.0",
   "description": "Browser WebSocket client for the knet protocol",
   "type": "module",

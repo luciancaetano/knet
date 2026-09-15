@@ -56,7 +56,7 @@ tm.EnablePing(ctx, server, 20) // ping every 20 ticks
 rtt, ok := tm.RTT(client.ID())
 ```
 
-Broadcasts the current tick on the reserved `timing.PingCommandID` (`0xFFFFFFFD`) every `intervalTicks`. Clients must echo the payload back unchanged on the same command ID — that's the entire client contract (`@knet/client` and the Unity client both do this automatically).
+Broadcasts the current tick on the reserved `timing.PingCommandID` (`0xFFFFFFFD`) every `intervalTicks`. Clients must echo the payload back unchanged on the same command ID — that's the entire client contract (`@lcaetano/knet-client` and the Unity client both do this automatically).
 
 ## SyncVar (dirty-tracked state sync)
 
@@ -103,7 +103,7 @@ SyncVar is safe for concurrent use.
 
 ### Wire format
 
-Same contract on every client (`Knet.Unity SyncVarAttribute`, `@knet/client` syncvar helpers):
+Same contract on every client (`Knet.Unity SyncVarAttribute`, `@lcaetano/knet-client` syncvar helpers):
 
 ```
 [0]     tag   — 1 byte, one of TagInt32(0x01) TagInt64(0x02) TagFloat32(0x03)

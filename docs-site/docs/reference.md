@@ -88,7 +88,7 @@ Standard codes per the [JSON-RPC 2.0 spec](https://www.jsonrpc.org/specification
 | `github.com/luciancaetano/knet/observer` | interest-managed broadcast on top of rooms |
 | `github.com/luciancaetano/knet/syncvar` | dirty-tracked state sync |
 | `github.com/luciancaetano/knet/timing` | fixed-rate tick loop + RTT ping |
-| `@knet/client` (npm) | browser client, `clients/js/` |
+| `@lcaetano/knet-client` (npm) | browser client, `clients/js/` |
 | Unity client | `clients/unity/Client.cs` |
 
 Full generated API docs: [pkg.go.dev/github.com/luciancaetano/knet](https://pkg.go.dev/github.com/luciancaetano/knet).
