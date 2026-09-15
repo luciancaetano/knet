@@ -1,0 +1,1050 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Go library for building game servers and real-time apps over WebSocket">
+      
+      
+      
+      
+        <link rel="prev" href="../rooms-observer/">
+      
+      
+        <link rel="next" href="../syncvar-timing/">
+      
+      
+      <link rel="icon" href="../assets/knet-dog.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.34">
+    
+    
+      
+        <title>Room Manager - knet</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.35f28582.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#room-manager" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="knet" class="md-header__button md-logo" aria-label="knet" data-md-component="logo">
+      
+  <img src="../assets/knet-dog.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            knet
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Room Manager
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/luciancaetano/knet" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    luciancaetano/knet
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="knet" class="md-nav__button md-logo" aria-label="knet" data-md-component="logo">
+      
+  <img src="../assets/knet-dog.png" alt="logo">
+
+    </a>
+    knet
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/luciancaetano/knet" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    luciancaetano/knet
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Introduction
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting Started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../server-api/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Server API
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rooms-observer/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Rooms & Observer
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Room Manager
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    Room Manager
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      Setup
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connecthooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      ConnectHooks
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config" class="md-nav__link">
+    <span class="md-ellipsis">
+      Config
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Hooks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-room-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reading room state
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roomhandler-per-room-instance-lifecycle-colyseus-style" class="md-nav__link">
+    <span class="md-ellipsis">
+      RoomHandler — per-room-instance lifecycle (Colyseus-style)
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wire-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      Wire protocol
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#client-libraries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Client libraries
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../syncvar-timing/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    SyncVar & Timing
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Clients
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Clients
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../js-client/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    JavaScript Client
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../unity-client/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Unity Client
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chat-example/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Chat Example (JS)
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Reference
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      Setup
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connecthooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      ConnectHooks
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config" class="md-nav__link">
+    <span class="md-ellipsis">
+      Config
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Hooks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-room-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reading room state
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roomhandler-per-room-instance-lifecycle-colyseus-style" class="md-nav__link">
+    <span class="md-ellipsis">
+      RoomHandler — per-room-instance lifecycle (Colyseus-style)
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wire-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      Wire protocol
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#client-libraries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Client libraries
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+  
+
+
+<h1 id="room-manager">Room Manager</h1>
+<p><code>roommanager</code> is an optional, opt-in layer on top of knet's internal room primitive. Rooms are <strong>never created directly by application code</strong> — only ever by a <code>Manager</code> (create-on-first-join / close-on-empty) — so every room's lifecycle always goes through this package's hooks. It adds a named/discoverable multi-room registry, reserved join/leave/message commands, and grace-period disconnect/reconnect handling for room membership — the things you'd otherwise hand-roll on top of a bare room type (see the <a href="../chat-example/">Chat Example</a>, which used to do exactly that).</p>
+<h2 id="setup">Setup</h2>
+<p><code>roommanager.New</code> never modifies knet core. It takes the same <a href="#connecthooks"><code>*knet.ConnectHooks</code></a> you wired into <code>ws.Config</code> and registers its own connect/disconnect tracking on it — so an application can't forget to wire that up, and can still add its own <code>OnConnect</code>/<code>OnDisconnect</code> listeners on the same hooks alongside it. <code>hooks</code> is <strong>mandatory</strong>: passing <code>nil</code> panics.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="s">"github.com/luciancaetano/knet"</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="s">"github.com/luciancaetano/knet/roommanager"</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nx">hooks</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">knet</span><span class="p">.</span><span class="nx">ConnectHooks</span><span class="p">{}</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nx">hooks</span><span class="p">.</span><span class="nx">OnConnect</span><span class="p">(</span><span class="kd">func</span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="nx">knet</span><span class="p">.</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"connected: %s"</span><span class="p">,</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">ID</span><span class="p">())</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">})</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="nx">hooks</span><span class="p">.</span><span class="nx">OnDisconnect</span><span class="p">(</span><span class="kd">func</span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="nx">knet</span><span class="p">.</span><span class="nx">Client</span><span class="p">,</span><span class="w"> </span><span class="nx">voluntary</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"disconnected: %s voluntary=%v"</span><span class="p">,</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">ID</span><span class="p">(),</span><span class="w"> </span><span class="nx">voluntary</span><span class="p">)</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="p">})</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="nx">cfg</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ws</span><span class="p">.</span><span class="nx">NewConfig</span><span class="p">(</span><span class="s">":8080"</span><span class="p">,</span><span class="w"> </span><span class="nx">ws</span><span class="p">.</span><span class="nx">DefaultRateLimitConfig</span><span class="p">(),</span><span class="w"> </span><span class="nx">ws</span><span class="p">.</span><span class="nx">AllOrigins</span><span class="p">(),</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="nx">hooks</span><span class="p">.</span><span class="nx">DispatchConnect</span><span class="p">,</span><span class="w"> </span><span class="nx">hooks</span><span class="p">.</span><span class="nx">DispatchDisconnect</span><span class="p">)</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="nx">server</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ws</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="nx">cfg</span><span class="p">)</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="nx">rooms</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">roommanager</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="nx">server</span><span class="p">,</span><span class="w"> </span><span class="nx">hooks</span><span class="p">,</span><span class="w"> </span><span class="nx">roommanager</span><span class="p">.</span><span class="nx">Config</span><span class="p">{})</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="c1">// Optional but recommended: resume pending room membership after a reconnect.</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="c1">// OnResume has no multi-listener fan-out (single ServerConfig field), so it</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="c1">// still needs manual wiring.</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="nx">cfg</span><span class="p">.</span><span class="nx">OnResume</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">client</span><span class="w"> </span><span class="nx">knet</span><span class="p">.</span><span class="nx">Client</span><span class="p">,</span><span class="w"> </span><span class="nx">previousRooms</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">rooms</span><span class="p">.</span><span class="nx">HandleResume</span><span class="p">(</span><span class="nx">client</span><span class="p">,</span><span class="w"> </span><span class="nx">previousRooms</span><span class="p">)</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="p">}</span>
+</code></pre></div>
+<p>An application that never calls <code>roommanager.New</code> has zero behavior change — the package touches nothing until you wire it in.</p>
+<h3 id="connecthooks">ConnectHooks</h3>
+<p><code>ws.Config</code>'s <code>onConnect</code>/<code>onDisconnect</code> fields hold a single function reference each. <code>knet.ConnectHooks</code> fans that single slot out to multiple independent listeners — e.g. your own app logic and <code>roommanager</code>'s tracking, registered independently without knowing about each other:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nx">hooks</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">knet</span><span class="p">.</span><span class="nx">ConnectHooks</span><span class="p">{}</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nx">hooks</span><span class="p">.</span><span class="nx">OnConnect</span><span class="p">(</span><span class="nx">appLogic</span><span class="p">.</span><span class="nx">onConnect</span><span class="p">)</span><span class="w">   </span><span class="c1">// your listener</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nx">hooks</span><span class="p">.</span><span class="nx">OnDisconnect</span><span class="p">(</span><span class="nx">appLogic</span><span class="p">.</span><span class="nx">onDisconnect</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1">// roommanager.New adds its own listeners on the same hooks internally.</span>
+</code></pre></div>
+<p><code>DispatchConnect</code> runs every registered <code>OnConnect</code> listener in registration order and returns <code>false</code> (rejecting the connection) if any of them does; <code>DispatchDisconnect</code> runs every <code>OnDisconnect</code> listener unconditionally.</p>
+<h2 id="config">Config</h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GraceTTL</code></td>
+<td>30s (matches knet's own <code>SessionGraceTTL</code>)</td>
+<td>how long a room membership stays pending after an involuntary disconnect, giving the client a window to reconnect and resume</td>
+</tr>
+<tr>
+<td><code>MaxMembersPerRoom</code></td>
+<td>0 (unlimited)</td>
+<td>caps how many clients may join a single room</td>
+</tr>
+</tbody>
+</table>
+<h2 id="hooks">Hooks</h2>
+<table>
+<thead>
+<tr>
+<th>Hook</th>
+<th>Fires</th>
+<th>Can reject?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OnBeforeJoin(func(client, roomID) error)</code></td>
+<td>before a join is accepted</td>
+<td>yes — returned error becomes the join's error response</td>
+</tr>
+<tr>
+<td><code>OnAfterJoin(func(client, roomID))</code></td>
+<td>after a join succeeds</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>OnBeforeLeave(func(client, roomID))</code></td>
+<td>before a leave/removal</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>OnAfterLeave(func(client, roomID))</code></td>
+<td>after a leave/removal</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>OnRoomCreated(func(roomID))</code></td>
+<td>a room is created on first join</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>OnRoomClosed(func(roomID))</code></td>
+<td>a room closes on last leave</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>OnRoomMessage(func(client, roomID, msgType, data) error)</code></td>
+<td>before a <code>sendMessage</code> is forwarded</td>
+<td>yes — returned error rejects the message</td>
+</tr>
+</tbody>
+</table>
+<p>Only one handler per hook; calling the setter again replaces the previous one.</p>
+<h2 id="reading-room-state">Reading room state</h2>
+<p>Rooms can only ever be created by a <code>Manager</code> — the constructor and the mutable room interface are not exported outside the library, so there's no way for application code to create a room that bypasses the Manager's join/leave lifecycle and its hooks. What you get back is a <strong>facade</strong>, <code>room.View</code> — read/broadcast only:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Room(roomID) (room.View, bool)</code></td>
+<td>read/broadcast-only view of the room: <code>ID()</code>, <code>Has()</code>, <code>Clients()</code>, <code>Size()</code>, <code>Broadcast()</code>, <code>BroadcastExcept()</code>, <code>Clock()</code></td>
+</tr>
+<tr>
+<td><code>RoomsOf(clientID) []string</code></td>
+<td>rooms a client currently belongs to</td>
+</tr>
+<tr>
+<td><code>Rooms() []string</code></td>
+<td>all currently open room IDs</td>
+</tr>
+<tr>
+<td><code>Server() knet.Server</code></td>
+<td>the underlying server this Manager is attached to</td>
+</tr>
+<tr>
+<td><code>GetClient(clientID) (knet.Client, bool)</code></td>
+<td>the connected client, if it's a member of any tracked room</td>
+</tr>
+<tr>
+<td><code>GetClients() []knet.Client</code></td>
+<td>every distinct client currently a member of a tracked room</td>
+</tr>
+</tbody>
+</table>
+<h2 id="roomhandler-per-room-instance-lifecycle-colyseus-style">RoomHandler — per-room-instance lifecycle (Colyseus-style)</h2>
+<p>For rooms that need their own state (a match, a game instance) instead of routing everything through the flat global hooks above, register a <code>RoomHandler</code> factory under a room type name with <code>Define</code>. The Manager instantiates one handler per room, the first time a client joins with a matching <code>RoomType</code>, and drives its lifecycle automatically:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">RoomHandler</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="nx">OnCreate</span><span class="p">(</span><span class="nx">v</span><span class="w"> </span><span class="nx">room</span><span class="p">.</span><span class="nx">View</span><span class="p">)</span><span class="w">                                 </span><span class="c1">// once, when the room is created (first join)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nx">OnJoin</span><span class="p">(</span><span class="nx">client</span><span class="w"> </span><span class="nx">knet</span><span class="p">.</span><span class="nx">Client</span><span class="p">,</span><span class="w"> </span><span class="nx">metadata</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">RawMessage</span><span class="p">)</span><span class="w">   </span><span class="c1">// every join to this room instance</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nx">OnLeave</span><span class="p">(</span><span class="nx">client</span><span class="w"> </span><span class="nx">knet</span><span class="p">.</span><span class="nx">Client</span><span class="p">)</span><span class="w">                            </span><span class="c1">// every leave (explicit, disconnect, or grace expiry)</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nx">OnDispose</span><span class="p">()</span><span class="w">                                            </span><span class="c1">// once, when the room closes (membership hits zero)</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="p">}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">MatchRoom</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nx">view</span><span class="w">    </span><span class="nx">room</span><span class="p">.</span><span class="nx">View</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nx">players</span><span class="w"> </span><span class="kt">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">bool</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">}</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">MatchRoom</span><span class="p">)</span><span class="w"> </span><span class="nx">OnCreate</span><span class="p">(</span><span class="nx">v</span><span class="w"> </span><span class="nx">room</span><span class="p">.</span><span class="nx">View</span><span class="p">)</span><span class="w">                               </span><span class="p">{</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">view</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">v</span><span class="p">;</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">players</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">bool</span><span class="p">{}</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">MatchRoom</span><span class="p">)</span><span class="w"> </span><span class="nx">OnJoin</span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="nx">knet</span><span class="p">.</span><span class="nx">Client</span><span class="p">,</span><span class="w"> </span><span class="nx">metadata</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">RawMessage</span><span class="p">)</span><span class="w">     </span><span class="p">{</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">players</span><span class="p">[</span><span class="nx">c</span><span class="p">.</span><span class="nx">ID</span><span class="p">()]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">MatchRoom</span><span class="p">)</span><span class="w"> </span><span class="nx">OnLeave</span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="nx">knet</span><span class="p">.</span><span class="nx">Client</span><span class="p">)</span><span class="w">                              </span><span class="p">{</span><span class="w"> </span><span class="nb">delete</span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nx">players</span><span class="p">,</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">ID</span><span class="p">())</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">MatchRoom</span><span class="p">)</span><span class="w"> </span><span class="nx">OnDispose</span><span class="p">()</span><span class="w">                                         </span><span class="p">{</span><span class="w"> </span><span class="cm">/* cleanup */</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="nx">rooms</span><span class="p">.</span><span class="nx">Define</span><span class="p">(</span><span class="s">"match"</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="nx">roommanager</span><span class="p">.</span><span class="nx">RoomHandler</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">MatchRoom</span><span class="p">{}</span><span class="w"> </span><span class="p">})</span>
+</code></pre></div>
+<p>The client requests a typed room by sending <code>RoomType</code> alongside <code>RoomID</code> on <code>CmdRoomJoin</code> (see <a href="#wire-protocol">Wire protocol</a> below). <code>Define</code> is purely additive: the global hooks (<code>OnAfterJoin</code>, etc.) keep firing for every room regardless of type, so existing flat-mode apps (e.g. the <a href="../chat-example/">Chat Example</a>, which never sets <code>RoomType</code>) are unaffected. Scope is intentionally limited to <code>OnCreate</code>/<code>OnJoin</code>/<code>OnLeave</code>/<code>OnDispose</code> — auth-like rejection and reconnects are still <code>OnBeforeJoin</code> and <code>HandleResume</code>'s job.</p>
+<p><code>metadata</code> is the client's optional <code>RoomJoinRequest.Metadata</code> — arbitrary app-defined JSON attached to the join itself (e.g. a display name), handed to <code>OnJoin</code> before the join is observable by any other member. This is the intended way to make join-time data available to a room: it arrives as part of the room's own join event, in order, with no race against a separate call the room can't see or sequence against. See the <a href="../chat-example/#24-lobbyroom--a-colyseus-style-room-class">Chat Example</a> for a worked example (a display name stored in <code>OnJoin</code> before the presence broadcast).</p>
+<h2 id="wire-protocol">Wire protocol</h2>
+<p>Reserved command range <code>0xFFFE0001</code>–<code>0xFFFE0008</code> — do not register handlers on these yourself.</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Constant</th>
+<th>Direction</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0xFFFE0001</code></td>
+<td><code>CmdRoomJoin</code></td>
+<td>client → server</td>
+<td>request to join a room</td>
+</tr>
+<tr>
+<td><code>0xFFFE0002</code></td>
+<td><code>CmdRoomLeave</code></td>
+<td>client → server</td>
+<td>request to leave a room</td>
+</tr>
+<tr>
+<td><code>0xFFFE0003</code></td>
+<td><code>CmdRoomJoinAck</code></td>
+<td>server → client</td>
+<td>join acknowledgement, with member list</td>
+</tr>
+<tr>
+<td><code>0xFFFE0004</code></td>
+<td><code>CmdRoomLeaveAck</code></td>
+<td>server → client</td>
+<td>leave acknowledgement</td>
+</tr>
+<tr>
+<td><code>0xFFFE0005</code></td>
+<td><code>CmdRoomError</code></td>
+<td>server → client</td>
+<td>room operation error</td>
+</tr>
+<tr>
+<td><code>0xFFFE0006</code></td>
+<td><code>CmdRoomMemberEvent</code></td>
+<td>server → client</td>
+<td>a member joined/left/disconnected/reconnected</td>
+</tr>
+<tr>
+<td><code>0xFFFE0007</code></td>
+<td><code>CmdRoomResumeSync</code></td>
+<td>server → client</td>
+<td>resumed session's room membership sync</td>
+</tr>
+<tr>
+<td><code>0xFFFE0008</code></td>
+<td><code>CmdRoomMessage</code></td>
+<td>both</td>
+<td>client → server to send, server → client to deliver, an arbitrary room-scoped message</td>
+</tr>
+</tbody>
+</table>
+<p><code>RoomJoinRequest</code> (payload of <code>CmdRoomJoin</code>) carries an optional <code>roomType</code> field naming a handler registered via <code>Define</code> (see above), and an optional <code>metadata</code> field (arbitrary JSON) delivered to that handler's <code>OnJoin</code> (see above). Both are omittable for a legacy flat room with no handler instance — fully backward compatible.</p>
+<p><code>CmdRoomMessage</code> is handled off the connection's read loop (bounded worker pool) and fans out concurrently per target — sending to a room does not block the sender's connection, and a client may be a member of several rooms at once without the message handling serializing across them.</p>
+<h2 id="client-libraries">Client libraries</h2>
+<p>Both first-party clients wrap this protocol — see their "Rooms" sections for usage: <a href="../js-client/#rooms">JS client</a>, <a href="../unity-client/#rooms">Unity client</a>.</p>
+<p><strong>Reconnect caveat:</strong> neither client currently persists/resends a session ID across reconnects, so the server can never treat a reconnect as a resume from the client's side today — <code>HandleResume</code>/<code>CmdRoomResumeSync</code> are wired and functional, but only reachable once a client sends back the session ID it was assigned. Until then, every client reconnect clears its local room list and fires a <code>roomsLost</code>/<code>OnRoomsLost</code> event instead of auto-resuming.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "..", "features": ["navigation.top", "navigation.expand", "search.suggest", "content.code.copy"], "search": "../assets/javascripts/workers/search.07f07601.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.56dfad97.min.js"></script>
+      
+    
+  </body>
+</html>
