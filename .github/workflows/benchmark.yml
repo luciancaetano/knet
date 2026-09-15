@@ -1,0 +1,49 @@
+name: Performance benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      loads:
+        description: "Comma-separated connection counts (e.g. 100,500,1000)"
+        required: false
+        default: ""
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .benchmark/go.mod
+
+      - name: Raise open-file limit
+        run: ulimit -n 65536
+
+      - name: Run benchmark suite
+        working-directory: .benchmark
+        run: go run . -loads "${{ github.event.inputs.loads }}"
+
+      - name: Add results to job summary
+        working-directory: .benchmark
+        run: |
+          {
+            echo "## Benchmark results"
+            echo "Charts and CSVs are attached as the \`benchmark-report\` artifact on this run."
+            echo
+            for f in results/*.csv; do
+              echo "### $(basename "$f")"
+              echo '```'
+              cat "$f"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: |
+            .benchmark/results/*.csv
+            .benchmark/images/*.png
+          retention-days: 90

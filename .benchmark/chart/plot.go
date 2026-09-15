@@ -5,6 +5,7 @@ package chart
 import (
 	"encoding/csv"
 	"fmt"
+	"image/color"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,9 +15,19 @@ import (
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/plotutil"
 	"gonum.org/v1/plot/vg"
+	"gonum.org/v1/plot/vg/draw"
+	"gonum.org/v1/plot/vg/vgimg"
 )
 
 var scenarios = []string{"baseline", "room", "ticker", "room_ticker"}
+
+// palette gives every scenario a fixed, high-contrast color that stays the
+// same across latency/memory/throughput charts (index == scenarios index).
+var palette = plotutil.DarkColors
+
+// pngDPI raises output resolution above gonum's 96 default so the charts
+// stay crisp at the 700px width docs-site renders them at.
+const pngDPI = 150
 
 type row struct {
 	connections   float64
@@ -74,12 +85,26 @@ func Generate(resultsDir string, outDirs ...string) error {
 			return err
 		}
 		for name, plt := range plots {
-			if err := plt.Save(9*vg.Inch, 5*vg.Inch, filepath.Join(outDir, name)); err != nil {
+			if err := savePNG(plt, 9*vg.Inch, 5*vg.Inch, filepath.Join(outDir, name)); err != nil {
 				return fmt.Errorf("save %s: %w", name, err)
 			}
 		}
 	}
 	return nil
+}
+
+// savePNG renders at pngDPI instead of gonum's 96 default, since Plot.Save
+// has no DPI knob.
+func savePNG(p *plot.Plot, w, h vg.Length, file string) error {
+	c := vgimg.NewWith(vgimg.UseWH(w, h), vgimg.UseDPI(pngDPI))
+	p.Draw(draw.New(c))
+	f, err := os.Create(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = (vgimg.PngCanvas{Canvas: c}).WriteTo(f)
+	return err
 }
 
 func readScenarioCSV(path string) ([]row, error) {
@@ -158,12 +183,18 @@ func (t connTicks) Ticks(min, max float64) []plot.Tick {
 	return ticks
 }
 
-func logAxis(p *plot.Plot, loads []float64) {
+// logAxis sets up the shared log-X grid/ticks. legendTop/legendLeft pick the
+// legend corner emptiest of data for that particular chart's shape — a
+// single fixed corner collides with a curve on at least one of the charts.
+func logAxis(p *plot.Plot, loads []float64, legendTop, legendLeft bool) {
 	p.X.Scale = plot.LogScale{}
 	p.X.Tick.Marker = connTicks{values: loads}
-	p.Add(plotter.NewGrid())
-	p.Legend.Top = true
-	p.Legend.Left = true
+	grid := plotter.NewGrid()
+	grid.Vertical.Color = color.Gray{Y: 220}
+	grid.Horizontal.Color = color.Gray{Y: 220}
+	p.Add(grid)
+	p.Legend.Top = legendTop
+	p.Legend.Left = legendLeft
 }
 
 // distinctConns collects the sorted, unique connection counts present across
@@ -194,6 +225,28 @@ func toXY(rows []row, f func(row) float64) plotter.XYs {
 	return pts
 }
 
+// addSeries draws one line+markers series in the palette color at index idx,
+// used instead of plotutil.AddLinePoints so every chart shares the same
+// color/shape per scenario with a thicker, more legible line.
+func addSeries(p *plot.Plot, name string, pts plotter.XYs, idx int) error {
+	if len(pts) == 0 {
+		return nil
+	}
+	line, points, err := plotter.NewLinePoints(pts)
+	if err != nil {
+		return err
+	}
+	c := palette[idx%len(palette)]
+	line.Color = c
+	line.Width = vg.Points(2)
+	points.Color = c
+	points.Shape = plotutil.Shape(idx)
+	points.Radius = vg.Points(3)
+	p.Add(line, points)
+	p.Legend.Add(name, line, points)
+	return nil
+}
+
 // labelPoints adds a text label only on the last point of the series (the
 // value most readers care about, and the only spot guaranteed not to collide
 // with a neighboring series at the same X).
@@ -218,18 +271,16 @@ func latencyPlot(data map[string][]row) (*plot.Plot, error) {
 	p.Title.Text = "Latency (p99) vs Connections"
 	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "latency (ms)"
-	logAxis(p, distinctConns(data))
+	logAxis(p, distinctConns(data), true, true)
 
-	var args []interface{}
-	for _, s := range scenarios {
+	for i, s := range scenarios {
 		pts := toXY(data[s], func(r row) float64 { return r.p99 })
-		args = append(args, s, pts)
+		if err := addSeries(p, s, pts, i); err != nil {
+			return nil, err
+		}
 		if err := labelPoints(p, pts, "%.2f"); err != nil {
 			return nil, err
 		}
-	}
-	if err := plotutil.AddLinePoints(p, args...); err != nil {
-		return nil, err
 	}
 	return p, nil
 }
@@ -239,18 +290,17 @@ func memoryPlot(data map[string][]row) (*plot.Plot, error) {
 	p.Title.Text = "Memory per Connection vs Connections"
 	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "bytes / connection"
-	logAxis(p, distinctConns(data))
+	p.Y.Min = 0
+	logAxis(p, distinctConns(data), false, false)
 
-	var args []interface{}
-	for _, s := range scenarios {
+	for i, s := range scenarios {
 		pts := toXY(data[s], func(r row) float64 { return r.bytesPerConn })
-		args = append(args, s, pts)
+		if err := addSeries(p, s, pts, i); err != nil {
+			return nil, err
+		}
 		if err := labelPoints(p, pts, "%.0f"); err != nil {
 			return nil, err
 		}
-	}
-	if err := plotutil.AddLinePoints(p, args...); err != nil {
-		return nil, err
 	}
 	return p, nil
 }
@@ -260,18 +310,16 @@ func throughputPlot(data map[string][]row) (*plot.Plot, error) {
 	p.Title.Text = "Throughput vs Connections"
 	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "messages / sec"
-	logAxis(p, distinctConns(data))
+	logAxis(p, distinctConns(data), true, true)
 
-	var args []interface{}
-	for _, s := range scenarios {
+	for i, s := range scenarios {
 		pts := toXY(data[s], func(r row) float64 { return r.throughput })
-		args = append(args, s, pts)
+		if err := addSeries(p, s, pts, i); err != nil {
+			return nil, err
+		}
 		if err := labelPoints(p, pts, "%.0f"); err != nil {
 			return nil, err
 		}
-	}
-	if err := plotutil.AddLinePoints(p, args...); err != nil {
-		return nil, err
 	}
 	return p, nil
 }
@@ -296,18 +344,16 @@ func jitterPlot(rows []jitterRow) (*plot.Plot, error) {
 		byMode[r.mode] = append(byMode[r.mode], struct{ X, Y float64 }{X: r.connections, Y: r.p99})
 	}
 	sort.Float64s(loads)
-	logAxis(p, loads)
+	logAxis(p, loads, true, true)
 
-	var args []interface{}
-	for _, mode := range []string{"no_room", "room"} {
+	for i, mode := range []string{"no_room", "room"} {
 		pts := byMode[mode]
-		args = append(args, mode+" p99 drift", pts)
+		if err := addSeries(p, mode+" p99 drift", pts, i); err != nil {
+			return nil, err
+		}
 		if err := labelPoints(p, pts, "%.2f"); err != nil {
 			return nil, err
 		}
-	}
-	if err := plotutil.AddLinePoints(p, args...); err != nil {
-		return nil, err
 	}
 	return p, nil
 }
