@@ -76,4 +76,4 @@ docs-install:
 
 # Serve the documentation site locally with live reload
 docs: docs-install
-	.venv/bin/mkdocs serve
+	.venv/bin/mkdocs serve -a 127.0.0.1:8037

@@ -113,15 +113,15 @@ O certificado (`cert.pem`/`key.pem`) é gerado automaticamente por `make chat-ex
 
 ## 3. Cliente Web passo a passo
 
-O cliente é um único `index.html`, sem build step. O pacote `@lcaetano/knet-client` ainda não está publicado num CDN, então este exemplo implementa um wrapper vanilla mínimo — o que também serve para mostrar como o protocolo é simples.
+O cliente é um único `index.html`, sem build step. Ele usa o cliente oficial [`@lcaetano/knet-client`](js-client.md), carregado direto de um CDN via ESM — nada de reimplementar wire format ou reconexão à mão.
 
-### 3.1 O wire format
+### 3.1 Importando o cliente oficial
 
 ```js
---8<-- "examples/chat/index.html:wire-format"
+--8<-- "examples/chat/index.html:import"
 ```
 
-Cada frame é `[1 byte de versão][4 bytes big-endian de commandID][payload]` — o mesmo formato usado pelos clientes JS e Unity oficiais (veja [Reference](reference.md#wire-format)).
+`esm.sh` serve o pacote publicado no npm como módulo ES puro, então basta um `<script type="module">` — sem bundler, sem `node_modules`. O wire format (`[1B versão][4B BE commandID][payload]`) e a reconexão automática já vêm resolvidos pelo `KNetClient` (veja [JS Client](js-client.md#wire-format)).
 
 ### 3.2 Command IDs no cliente
 
@@ -129,23 +129,18 @@ Cada frame é `[1 byte de versão][4 bytes big-endian de commandID][payload]` �
 --8<-- "examples/chat/index.html:commands"
 ```
 
-### 3.3 O wrapper de WebSocket
-
-```js
---8<-- "examples/chat/index.html:client"
-```
-
-Pontos importantes:
-
-- `connect()` abre o socket e agenda reconexão automática em `onclose`, a menos que a desconexão tenha sido manual
-- `disconnect()` marca `manuallyDisconnected = true` **antes** de fechar — isso desliga o auto-reconnect e garante que o browser manda um close frame normal, o que faz o servidor ver `voluntary = true`
-- o backoff de reconexão é `delay = 1s × min(tentativa, 5)`, o mesmo esquema documentado para os clientes oficiais
-
-### 3.4 Ligando tudo na UI
+### 3.3 Ligando tudo na UI
 
 ```js
 --8<-- "examples/chat/index.html:ui"
 ```
+
+Pontos importantes:
+
+- `client.connect()` abre o socket; o próprio `KNetClient` agenda reconexão automática a menos que `client.disconnect()` tenha sido chamado antes
+- `client.disconnect()` desliga o auto-reconnect e fecha com um close frame normal, o que faz o servidor ver `voluntary = true` — por isso a UI guarda `leftVoluntarily` só para decidir a mensagem de status exibida, não para controlar a reconexão em si
+- o backoff de reconexão padrão do cliente é `delay = reconnectDelayMs × min(tentativa, 5)` (veja [JS Client → Reconnect](js-client.md#reconnect))
+- `client.on("connected", ...)`, `client.on("disconnected", ...)` e `client.onCommand(id, ...)` substituem os `addEventListener` do wrapper manual anterior
 
 ## 4. Reconexão na prática
 
@@ -189,5 +184,5 @@ Abra `https://localhost:8081` em duas abas:
 ## 7. Próximos passos
 
 - [Rooms & Observer](rooms-observer.md) — mais de uma sala, interest management
-- [JavaScript Client](js-client.md) — cliente oficial com reconexão, JSON-RPC e mais, em vez do wrapper vanilla deste exemplo
+- [JavaScript Client](js-client.md) — referência completa do `KNetClient`: JSON-RPC, sync vars, reconexão configurável e mais
 - [Server API](server-api.md) — configuração completa do servidor, rate limiting, segurança

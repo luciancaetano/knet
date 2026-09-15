@@ -72,28 +72,12 @@
 
 </div>
 
-<script>
-// --8<-- [start:wire-format]
-// Wire format for every frame sent/received over the socket:
-//   [1B version][4B BE commandID][payload]
-// version is always 1 for this protocol revision.
-const VERSION = 1;
-
-function encodeFrame(commandId, payload) {
-  const buf = new Uint8Array(1 + 4 + payload.length);
-  buf[0] = VERSION;
-  new DataView(buf.buffer).setUint32(1, commandId, false); // big-endian
-  buf.set(payload, 5);
-  return buf;
-}
-
-function decodeFrame(buf) {
-  const view = new DataView(buf);
-  const commandId = view.getUint32(1, false);
-  const payload = new Uint8Array(buf, 5);
-  return { commandId, payload };
-}
-// --8<-- [end:wire-format]
+<script type="module">
+// --8<-- [start:import]
+// Official client, loaded straight from a CDN — no build step needed for
+// this plain index.html. Handles the wire format, reconnect and events.
+import { KNetClient } from "https://esm.sh/@lcaetano/knet-client@0.1.0";
+// --8<-- [end:import]
 
 // --8<-- [start:commands]
 const CmdSetName = 0x0001;
@@ -107,79 +91,23 @@ const CmdUserDisconnected = 0x0005;
 // WebSocket never exposes *why* a connection failed (spec: onerror carries
 // no code/message, for security). onclose's `code` + how fast it fired are
 // the only signal we get, so turn that into a human-readable guess.
-function describeCloseReason(ev, neverOpened, url) {
+function describeCloseReason(code, neverOpened, url) {
   if (!neverOpened) return null; // dropped after a working connection — not a handshake problem
-  if (ev.code === 1015) return "certificado TLS recusado pelo navegador";
-  if (ev.code === 1006 && url.startsWith("wss://")) {
+  if (code === 1015) return "certificado TLS recusado pelo navegador";
+  if (code === 1006 && url.startsWith("wss://")) {
     const httpsUrl = url.replace(/^wss:/, "https:").replace(/\/ws$/, "");
     return `TLS/handshake falhou — provavelmente o certificado autoassinado ainda não foi aceito. Abra ${httpsUrl} numa aba, aceite o aviso, e tente de novo.`;
   }
-  return `fechado com código ${ev.code}`;
+  return `fechado com código ${code}`;
 }
 // --8<-- [end:close-reason]
 
-// --8<-- [start:client]
-// Minimal vanilla WebSocket wrapper with auto-reconnect. The published
-// wire format is simple enough that a real client library isn't required
-// for a small example like this one.
-class ChatClient extends EventTarget {
-  constructor(url) {
-    super();
-    this.url = url;
-    this.ws = null;
-    this.manuallyDisconnected = false;
-    this.reconnectAttempt = 0;
-  }
-
-  connect() {
-    this.manuallyDisconnected = false;
-    const connectStartedAt = performance.now();
-    this.ws = new WebSocket(this.url);
-    this.ws.binaryType = "arraybuffer";
-
-    this.ws.onopen = () => {
-      this.reconnectAttempt = 0;
-      this.dispatchEvent(new Event("connected"));
-    };
-
-    this.ws.onmessage = (ev) => {
-      const { commandId, payload } = decodeFrame(ev.data);
-      this.dispatchEvent(new CustomEvent("command", { detail: { commandId, payload } }));
-    };
-
-    // The WebSocket spec never exposes a reason on `onerror` (browser
-    // security policy hides it). `onclose` always fires right after with a
-    // status code, so we infer the likely cause from that + timing instead.
-    this.ws.onclose = (ev) => {
-      const neverOpened = this.reconnectAttempt === 0 && performance.now() - connectStartedAt < 1000;
-      const hint = describeCloseReason(ev, neverOpened, this.url);
-      this.dispatchEvent(new CustomEvent("disconnected", { detail: { hint } }));
-      if (!this.manuallyDisconnected) this.scheduleReconnect();
-    };
-  }
-
-  scheduleReconnect() {
-    this.reconnectAttempt++;
-    const delay = 1000 * Math.min(this.reconnectAttempt, 5);
-    setTimeout(() => this.connect(), delay);
-  }
-
-  // Clean disconnect: sends a normal close frame, so the server's
-  // OnDisconnect callback sees voluntary=true.
-  disconnect() {
-    this.manuallyDisconnected = true;
-    this.ws?.close();
-  }
-
-  sendString(commandId, text) {
-    const payload = new TextEncoder().encode(text);
-    this.ws.send(encodeFrame(commandId, payload));
-  }
-}
-// --8<-- [end:client]
-
 // --8<-- [start:ui]
-const client = new ChatClient("wss://localhost:8080/ws");
+const url = "wss://localhost:8080/ws";
+const client = new KNetClient({ url });
+let connectStartedAt = 0;
+let reconnectAttempt = 0;
+let leftVoluntarily = false;
 const statusEl = document.getElementById("status");
 const messagesEl = document.getElementById("messages");
 const nameEl = document.getElementById("name");
@@ -202,7 +130,8 @@ function addMessage(text, kind = "chat") {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-client.addEventListener("connected", () => {
+client.on("connected", () => {
+  reconnectAttempt = 0;
   statusEl.textContent = "conectado";
   statusEl.className = "font-semibold text-gopher-aqua";
   document.getElementById("leaveBtn").disabled = false;
@@ -214,38 +143,44 @@ client.addEventListener("connected", () => {
   client.sendString(CmdSetName, nameEl.value || "guest");
 });
 
-client.addEventListener("disconnected", (ev) => {
-  const reconnecting = !client.manuallyDisconnected;
-  const hint = ev.detail?.hint;
+client.on("disconnected", (code, reason) => {
+  const neverOpened = reconnectAttempt === 0 && performance.now() - connectStartedAt < 1000;
+  const hint = describeCloseReason(code, neverOpened, url);
+  const reconnecting = !leftVoluntarily;
   statusEl.textContent = hint ? `erro: ${hint}` : (reconnecting ? "reconectando..." : "desconectado");
   statusEl.className = reconnecting ? "font-semibold text-gopher-yellow" : "font-semibold text-gopher-fuchsia";
   document.getElementById("leaveBtn").disabled = true;
   textEl.disabled = true;
   document.getElementById("sendBtn").disabled = true;
+  reconnectAttempt++;
 });
 
-client.addEventListener("command", (ev) => {
-  const { commandId, payload } = ev.detail;
+client.onCommand(CmdChat, (payload) => {
   const json = JSON.parse(new TextDecoder().decode(payload));
-
-  switch (commandId) {
-    case CmdChat:
-      addMessage(`${json.from}: ${json.text}`, "chat");
-      break;
-    case CmdUserJoined:
-      addMessage(`${json.name} entrou`, "join");
-      break;
-    case CmdUserLeft:
-      addMessage(`${json.name} saiu`, "left");
-      break;
-    case CmdUserDisconnected:
-      addMessage(`${json.name} caiu (conexão perdida)`, "disconnected");
-      break;
-  }
+  addMessage(`${json.from}: ${json.text}`, "chat");
+});
+client.onCommand(CmdUserJoined, (payload) => {
+  const json = JSON.parse(new TextDecoder().decode(payload));
+  addMessage(`${json.name} entrou`, "join");
+});
+client.onCommand(CmdUserLeft, (payload) => {
+  const json = JSON.parse(new TextDecoder().decode(payload));
+  addMessage(`${json.name} saiu`, "left");
+});
+client.onCommand(CmdUserDisconnected, (payload) => {
+  const json = JSON.parse(new TextDecoder().decode(payload));
+  addMessage(`${json.name} caiu (conexão perdida)`, "disconnected");
 });
 
-document.getElementById("connectBtn").addEventListener("click", () => client.connect());
-document.getElementById("leaveBtn").addEventListener("click", () => client.disconnect());
+document.getElementById("connectBtn").addEventListener("click", () => {
+  leftVoluntarily = false;
+  connectStartedAt = performance.now();
+  client.connect();
+});
+document.getElementById("leaveBtn").addEventListener("click", () => {
+  leftVoluntarily = true;
+  client.disconnect();
+});
 document.getElementById("sendBtn").addEventListener("click", () => {
   if (!textEl.value) return;
   client.sendString(CmdChat, textEl.value);
