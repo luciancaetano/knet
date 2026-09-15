@@ -54,7 +54,7 @@ func TestEncodeDecode(t *testing.T) {
 			}
 
 			// Decode
-			gotCmd, gotPayload, err := protocol.Decode(encoded)
+			_, gotCmd, gotPayload, err := protocol.Decode(encoded)
 			if err != nil {
 				t.Fatalf("Decode() error = %v", err)
 			}
@@ -123,19 +123,24 @@ func TestDecodeErrors(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name:      "data too short - 3 bytes",
-			data:      []byte{0x00, 0x01, 0x02},
+			name:      "data too short - 4 bytes",
+			data:      []byte{0x01, 0x00, 0x01, 0x02},
 			wantError: true,
 		},
 		{
-			name:      "minimum valid data - 4 bytes header only",
-			data:      []byte{0x00, 0x00, 0x00, 0x01},
+			name:      "minimum valid data - header only",
+			data:      []byte{0x01, 0x00, 0x00, 0x00, 0x01},
 			wantError: false,
 		},
 		{
 			name:      "valid data with payload",
-			data:      []byte{0x00, 0x00, 0x00, 0x01, 0xFF, 0xFE},
+			data:      []byte{0x01, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFE},
 			wantError: false,
+		},
+		{
+			name:      "unsupported version",
+			data:      []byte{0x02, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFE},
+			wantError: true,
 		},
 	}
 
@@ -143,7 +148,7 @@ func TestDecodeErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, err := protocol.Decode(tt.data)
+			_, _, _, err := protocol.Decode(tt.data)
 			if (err != nil) != tt.wantError {
 				t.Errorf("Decode() error = %v, wantError %v", err, tt.wantError)
 			}
@@ -174,7 +179,7 @@ func TestEncodeDecodeSymmetry(t *testing.T) {
 					t.Fatalf("Encode failed: %v", err)
 				}
 
-				decodedCmd, decodedPayload, err := protocol.Decode(encoded)
+				_, decodedCmd, decodedPayload, err := protocol.Decode(encoded)
 				if err != nil {
 					t.Fatalf("Decode failed: %v", err)
 				}
@@ -210,7 +215,7 @@ func BenchmarkDecode(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _, _ = protocol.Decode(encoded)
+		_, _, _, _ = protocol.Decode(encoded)
 	}
 }
 
@@ -222,6 +227,6 @@ func BenchmarkEncodeDecodeRoundtrip(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		encoded, _ := protocol.Encode(commandID, payload)
-		_, _, _ = protocol.Decode(encoded)
+		_, _, _, _ = protocol.Decode(encoded)
 	}
 }

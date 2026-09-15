@@ -55,7 +55,7 @@ func TestBasicEcho(t *testing.T) {
 		t.Fatalf("Failed to read: %v", err)
 	}
 
-	_, respPayload, err := protocol.Decode(response)
+	_, _, respPayload, err := protocol.Decode(response)
 	if err != nil {
 		t.Fatalf("Failed to decode: %v", err)
 	}

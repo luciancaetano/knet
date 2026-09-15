@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"crypto/tls"
 	"net/http"
 	"strings"
 
@@ -20,6 +21,7 @@ type CheckOriginFn = websocket.CheckOriginFn
 type OnConnectFn = websocket.OnConnectFn
 
 type OnDisconnectFn = websocket.OnClientDisconnectFn
+type OnResumeFn = websocket.OnResumeFn
 type ServerConfig = *websocket.ServerConfig
 
 // New creates a new WebSocket server from the provided config.
@@ -38,6 +40,48 @@ func New(cfg ServerConfig) knet.Server {
 //	server := ws.New(cfg)
 func WithLogger(cfg ServerConfig, l knet.Logger) ServerConfig {
 	cfg.Logger = l
+	return cfg
+}
+
+// WithMetrics sets a custom Metrics implementation on the server config,
+// routing knet instrumentation into your application's observability stack
+// (Prometheus, StatsD, OpenTelemetry, …).
+//
+// Example:
+//
+//	cfg := ws.NewConfig(":8080", ws.DefaultRateLimitConfig(), ws.AllOrigins(), nil, nil)
+//	cfg = ws.WithMetrics(cfg, myPrometheusAdapter)
+//	server := ws.New(cfg)
+func WithMetrics(cfg ServerConfig, m knet.Metrics) ServerConfig {
+	cfg.Metrics = m
+	return cfg
+}
+
+// WithTLS enables wss:// by setting the certificate/key file pair used by
+// ServeTLS. For a self-signed dev certificate:
+//
+//	openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem \
+//	    -days 365 -subj "/CN=localhost"
+//
+// In production, prefer terminating TLS at a reverse proxy (nginx, Caddy)
+// and leaving this unset — or set TLSConfig via WithTLSConfig for full
+// control (custom ciphers, client cert auth, ACME, …).
+//
+// Example:
+//
+//	cfg := ws.NewConfig(":8443", ws.DefaultRateLimitConfig(), ws.AllOrigins(), nil, nil)
+//	cfg = ws.WithTLS(cfg, "cert.pem", "key.pem")
+//	server := ws.New(cfg)
+func WithTLS(cfg ServerConfig, certFile, keyFile string) ServerConfig {
+	cfg.TLSCertFile = certFile
+	cfg.TLSKeyFile = keyFile
+	return cfg
+}
+
+// WithTLSConfig sets a custom *tls.Config (ciphers, client auth, ACME
+// GetCertificate, …) in addition to or instead of WithTLS's cert/key files.
+func WithTLSConfig(cfg ServerConfig, tlsCfg *tls.Config) ServerConfig {
+	cfg.TLSConfig = tlsCfg
 	return cfg
 }
 

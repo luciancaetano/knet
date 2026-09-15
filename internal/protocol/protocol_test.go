@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"testing"
 )
 
@@ -87,8 +88,13 @@ func TestEncode(t *testing.T) {
 				t.Errorf("result length = %d, want %d", len(result), expectedLen)
 			}
 
+			// Verify version byte
+			if result[0] != CurrentVersion {
+				t.Errorf("encoded version = %v, want %v", result[0], CurrentVersion)
+			}
+
 			// Verify command ID in header
-			gotCmd := binary.BigEndian.Uint32(result[:HeaderSize])
+			gotCmd := binary.BigEndian.Uint32(result[1:HeaderSize])
 			if gotCmd != tt.commandID {
 				t.Errorf("encoded command ID = %v, want %v", gotCmd, tt.commandID)
 			}
@@ -115,28 +121,28 @@ func TestDecode(t *testing.T) {
 	}{
 		{
 			name:        "valid data with payload",
-			data:        []byte{0x00, 0x00, 0x00, 0x01, 0x68, 0x65, 0x6C, 0x6C, 0x6F}, // cmd=1, payload="hello"
+			data:        []byte{0x01, 0x00, 0x00, 0x00, 0x01, 0x68, 0x65, 0x6C, 0x6C, 0x6F}, // v=1, cmd=1, payload="hello"
 			wantCmd:     0x01,
 			wantPayload: []byte("hello"),
 			wantError:   false,
 		},
 		{
 			name:        "valid data with empty payload",
-			data:        []byte{0x00, 0x00, 0x01, 0x00}, // cmd=256, no payload
+			data:        []byte{0x01, 0x00, 0x00, 0x01, 0x00}, // v=1, cmd=256, no payload
 			wantCmd:     0x0100,
 			wantPayload: []byte{},
 			wantError:   false,
 		},
 		{
 			name:        "max command ID",
-			data:        []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x41}, // cmd=max, payload="A"
+			data:        []byte{0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0x41}, // v=1, cmd=max, payload="A"
 			wantCmd:     0xFFFFFFFF,
 			wantPayload: []byte{0x41},
 			wantError:   false,
 		},
 		{
 			name:        "zero command ID",
-			data:        []byte{0x00, 0x00, 0x00, 0x00, 0x74, 0x65, 0x73, 0x74}, // cmd=0, payload="test"
+			data:        []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x74, 0x65, 0x73, 0x74}, // v=1, cmd=0, payload="test"
 			wantCmd:     0,
 			wantPayload: []byte("test"),
 			wantError:   false,
@@ -149,15 +155,15 @@ func TestDecode(t *testing.T) {
 			wantError:   true,
 		},
 		{
-			name:        "data too short - 3 bytes",
-			data:        []byte{0x00, 0x00, 0x01},
+			name:        "data too short - 4 bytes",
+			data:        []byte{0x01, 0x00, 0x00, 0x01},
 			wantCmd:     0,
 			wantPayload: nil,
 			wantError:   true,
 		},
 		{
 			name:        "exactly header size",
-			data:        []byte{0x00, 0x00, 0x00, 0x42},
+			data:        []byte{0x01, 0x00, 0x00, 0x00, 0x42},
 			wantCmd:     0x42,
 			wantPayload: []byte{},
 			wantError:   false,
@@ -168,7 +174,7 @@ func TestDecode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotCmd, gotPayload, err := Decode(tt.data)
+			_, gotCmd, gotPayload, err := Decode(tt.data)
 
 			if (err != nil) != tt.wantError {
 				t.Errorf("Decode() error = %v, wantError %v", err, tt.wantError)
@@ -187,6 +193,22 @@ func TestDecode(t *testing.T) {
 				t.Errorf("Decode() payload = %v, want %v", gotPayload, tt.wantPayload)
 			}
 		})
+	}
+}
+
+// TestDecodeUnsupportedVersion verifies that a frame with an unknown version
+// byte is rejected with ErrUnsupportedVersion rather than being misparsed.
+func TestDecodeUnsupportedVersion(t *testing.T) {
+	t.Parallel()
+
+	data := []byte{0x02, 0x00, 0x00, 0x00, 0x01, 0x68, 0x69} // v=2 (unknown), cmd=1, payload="hi"
+
+	version, _, _, err := Decode(data)
+	if !errors.Is(err, ErrUnsupportedVersion) {
+		t.Fatalf("Decode() error = %v, want ErrUnsupportedVersion", err)
+	}
+	if version != 2 {
+		t.Errorf("Decode() version = %v, want 2", version)
 	}
 }
 
@@ -216,9 +238,13 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 				t.Fatalf("Encode() failed: %v", err)
 			}
 
-			decodedCmd, decodedPayload, err := Decode(encoded)
+			version, decodedCmd, decodedPayload, err := Decode(encoded)
 			if err != nil {
 				t.Fatalf("Decode() failed: %v", err)
+			}
+
+			if version != CurrentVersion {
+				t.Errorf("version = %v, want %v", version, CurrentVersion)
 			}
 
 			if decodedCmd != tt.commandID {
@@ -237,11 +263,11 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 func TestDecodePayloadIndependence(t *testing.T) {
 	t.Parallel()
 
-	original := []byte{0x00, 0x00, 0x00, 0x01, 0x41, 0x42, 0x43} // cmd=1, payload="ABC"
+	original := []byte{0x01, 0x00, 0x00, 0x00, 0x01, 0x41, 0x42, 0x43} // v=1, cmd=1, payload="ABC"
 	originalCopy := make([]byte, len(original))
 	copy(originalCopy, original)
 
-	_, payload, err := Decode(original)
+	_, _, payload, err := Decode(original)
 	if err != nil {
 		t.Fatalf("Decode() failed: %v", err)
 	}
@@ -275,13 +301,14 @@ func TestEncodePreservesInput(t *testing.T) {
 	}
 }
 
-// TestEncodeBigEndian verifies that command IDs are encoded in big-endian format
+// TestEncodeBigEndian verifies that command IDs are encoded in big-endian
+// format after the leading version byte.
 func TestEncodeBigEndian(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		commandID uint32
-		expected  []byte // First 4 bytes
+		expected  []byte // bytes [1:5] (command ID, after the version byte)
 	}{
 		{0x01020304, []byte{0x01, 0x02, 0x03, 0x04}},
 		{0x00000001, []byte{0x00, 0x00, 0x00, 0x01}},
@@ -296,8 +323,11 @@ func TestEncodeBigEndian(t *testing.T) {
 				t.Fatalf("Encode() failed: %v", err)
 			}
 
-			if !bytes.Equal(result[:4], tt.expected) {
-				t.Errorf("encoded bytes = %v, want %v", result[:4], tt.expected)
+			if result[0] != CurrentVersion {
+				t.Errorf("version byte = %v, want %v", result[0], CurrentVersion)
+			}
+			if !bytes.Equal(result[1:5], tt.expected) {
+				t.Errorf("encoded bytes = %v, want %v", result[1:5], tt.expected)
 			}
 		})
 	}
@@ -317,7 +347,7 @@ func BenchmarkDecode(b *testing.B) {
 	data, _ := Encode(0x42, []byte("benchmark test payload with some data"))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _, _ = Decode(data)
+		_, _, _, _ = Decode(data)
 	}
 }
 

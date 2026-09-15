@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,7 +86,39 @@ type ServerConfig struct {
 	// infrastructure. nil → knet.DefaultLogger() (writes via slog.Default).
 	// Use knet.NopLogger() to suppress all output.
 	Logger knet.Logger
+
+	// Metrics routes knet instrumentation into your application's
+	// observability stack. nil → knet.NopMetrics() (discards everything).
+	Metrics knet.Metrics
+
+	// DrainTimeout is how long Stop gives already-connected clients to
+	// disconnect voluntarily before they are force-closed with a
+	// GoingAway close code (0 = 10s).
+	DrainTimeout time.Duration
+
+	// SessionStore backs reconnect/resume: a reconnecting client presents its
+	// previous session ID via the "session" query parameter, and if found in
+	// the store, reuses that ID as its client ID and (if OnResume is set) has
+	// its previous room list handed back to the application to re-join.
+	// nil → an in-memory store.
+	SessionStore knet.SessionStore
+
+	// SessionGraceTTL is how long a session survives an involuntary
+	// disconnect, giving the client a window to reconnect and resume
+	// (0 = 30s).
+	SessionGraceTTL time.Duration
+
+	// OnResume is called instead of OnConnect's normal flow, after OnConnect
+	// accepts the connection, when the client resumed an existing session.
+	// previousRooms are the room IDs the application previously stored via
+	// SessionStore.Put for this session. Return true to accept the resume.
+	OnResume OnResumeFn
 }
+
+// OnResumeFn is called when a client reconnects with a session ID that was
+// found in the SessionStore. previousRooms is whatever room-ID list the
+// application stored (e.g. it should re-add the client to those Rooms).
+type OnResumeFn = func(client knet.Client, previousRooms []string) bool
 
 // RateLimitConfig defines per-client message rate limiting (token-bucket).
 type RateLimitConfig struct {
@@ -145,6 +179,12 @@ type Server struct {
 	onConnect    OnConnectFn
 	onDisconnect OnClientDisconnectFn
 	log          knet.Logger
+	metrics      knet.Metrics
+	drainTimeout time.Duration
+
+	sessionStore    knet.SessionStore
+	sessionGraceTTL time.Duration
+	onResume        OnResumeFn
 }
 
 // New creates a new Server from the provided config.
@@ -175,6 +215,25 @@ func New(cfg *ServerConfig) *Server {
 		logger = knet.DefaultLogger()
 	}
 
+	metrics := cfg.Metrics
+	if metrics == nil {
+		metrics = knet.NopMetrics()
+	}
+
+	drainTimeout := cfg.DrainTimeout
+	if drainTimeout <= 0 {
+		drainTimeout = 10 * time.Second
+	}
+
+	sessionStore := cfg.SessionStore
+	if sessionStore == nil {
+		sessionStore = newMemorySessionStore()
+	}
+	sessionGraceTTL := cfg.SessionGraceTTL
+	if sessionGraceTTL <= 0 {
+		sessionGraceTTL = 30 * time.Second
+	}
+
 	return &Server{
 		addr:            cfg.Addr,
 		rateLimitConfig: cfg.RateLimitConfig,
@@ -190,6 +249,11 @@ func New(cfg *ServerConfig) *Server {
 		onConnect:       cfg.OnConnect,
 		onDisconnect:    cfg.OnClientDisconnect,
 		log:             logger,
+		metrics:         metrics,
+		drainTimeout:    drainTimeout,
+		sessionStore:    sessionStore,
+		sessionGraceTTL: sessionGraceTTL,
+		onResume:        cfg.OnResume,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -291,21 +355,57 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.running = false
 	s.mu.Unlock()
 
-	// Flag all clients as server-closed and close their connections.
+	// Mark every client as server-closed so voluntary disconnects during the
+	// drain window aren't misreported, but give clients up to DrainTimeout to
+	// close on their own before forcing them.
 	s.clients.Range(func(key, value interface{}) bool {
 		if client, ok := value.(*Client); ok {
 			client.serverClosed.Store(true)
-			client.Close(ctx)
 		}
 		return true
 	})
+
+	drainCtx, cancel := context.WithTimeout(ctx, s.drainTimeout)
+	defer cancel()
+
+	drained := make(chan struct{})
+	go func() {
+		s.clientWg.Wait()
+		close(drained)
+	}()
+
+	var forced int64
+	select {
+	case <-drained:
+	case <-drainCtx.Done():
+		s.clients.Range(func(key, value interface{}) bool {
+			if client, ok := value.(*Client); ok {
+				forced++
+				s.metrics.IncCounter("knet_shutdown_forced_close_total")
+				client.CloseWithCode(ctx, websocket.CloseGoingAway, "server shutting down")
+			}
+			return true
+		})
+		<-drained
+	}
+	s.log.Info("shutdown: clients drained", "forced", forced)
 
 	// Wait for all handleClient goroutines to exit; after this point no new
 	// handler tasks can be submitted to the pool.
 	s.clientWg.Wait()
 
-	// Wait for all already-dispatched handler tasks.
-	s.handlerWg.Wait()
+	// Wait for all already-dispatched handler tasks, bounded by ctx so a
+	// stuck handler can't hang shutdown forever.
+	done := make(chan struct{})
+	go func() {
+		s.handlerWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		s.log.Warn("stop: timed out waiting for in-flight handlers")
+	}
 
 	// Shut down the worker pool.
 	if s.workerCh != nil {
@@ -335,8 +435,18 @@ func (s *Server) RegisterJSONRPCHandler(ctx context.Context, method string, hand
 // handleWebSocket upgrades an HTTP connection to WebSocket and launches the
 // per-client goroutine.
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	running := s.running
+	s.mu.RUnlock()
+	if !running {
+		s.metrics.IncCounter("knet_conn_rejected_total", "reason", "shutting_down")
+		http.Error(w, "server shutting down", http.StatusServiceUnavailable)
+		return
+	}
+
 	// HIGH-1: global connection cap.
 	if s.maxConnections > 0 && s.connCount.Load() >= s.maxConnections {
+		s.metrics.IncCounter("knet_conn_rejected_total", "reason", "max_conn")
 		http.Error(w, "server at capacity", http.StatusServiceUnavailable)
 		return
 	}
@@ -344,6 +454,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// LOW-5: per-IP connection cap.
 	ip := extractIP(r.RemoteAddr)
 	if !s.incrIPCount(ip) {
+		s.metrics.IncCounter("knet_conn_rejected_total", "reason", "max_per_ip")
 		http.Error(w, "too many connections from this address", http.StatusTooManyRequests)
 		return
 	}
@@ -351,16 +462,33 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.decrIPCount(ip)
+		s.metrics.IncCounter("knet_conn_rejected_total", "reason", "upgrade_failed")
 		return
 	}
+	s.metrics.IncCounter("knet_conn_accepted_total")
 
 	// HIGH-2: enforce the protocol payload limit at the transport layer.
 	// gorilla will close the connection with 1009 (Message Too Big) before
 	// allocating a buffer for oversized frames, preventing memory exhaustion.
 	conn.SetReadLimit(int64(protocol.MaxPayloadSize) + int64(protocol.HeaderSize))
 
+	// Reconnect/resume: a client presenting a known session ID reuses it as
+	// its client ID and gets its previous room list handed to OnResume.
+	sessionID := r.URL.Query().Get("session")
+	var previousRooms []string
+	var resumed bool
+	if sessionID != "" {
+		if rooms, ok := s.sessionStore.Get(sessionID); ok {
+			previousRooms = rooms
+			resumed = true
+		} else {
+			sessionID = ""
+		}
+	}
+
 	s.connCount.Add(1)
-	client := NewClient(conn, r.RemoteAddr, s.rateLimitConfig, s.pingInterval)
+	s.metrics.SetGauge("knet_conns_active", float64(s.connCount.Load()))
+	client := NewClient(conn, r.RemoteAddr, s.rateLimitConfig, s.pingInterval, sessionID)
 	s.clients.Store(client.ID(), client)
 
 	s.clientWg.Add(1)
@@ -368,22 +496,33 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			s.clientWg.Done()
 			s.connCount.Add(-1)
+			s.metrics.SetGauge("knet_conns_active", float64(s.connCount.Load()))
 			s.decrIPCount(ip)
 		}()
-		s.handleClient(client)
+		s.handleClient(client, resumed, previousRooms)
 	}()
 }
 
 // handleClient is the per-connection read loop.
-func (s *Server) handleClient(client *Client) {
+func (s *Server) handleClient(client *Client, resumed bool, previousRooms []string) {
 	defer func() {
 		// LOW-1 fix: voluntary == true only when the remote peer initiated the
 		// close; false when the server closed it.
 		voluntary := !client.serverClosed.Load()
+		s.metrics.IncCounter("knet_conn_closed_total", "voluntary", strconv.FormatBool(voluntary))
 		if s.onDisconnect != nil {
 			s.onDisconnect(client, voluntary)
 		}
 		s.clients.Delete(client.ID())
+		// Involuntary disconnects keep their session alive for a grace period
+		// so the client can reconnect and resume; voluntary ones are removed.
+		if !voluntary {
+			if rooms, ok := s.sessionStore.Get(client.ID()); ok {
+				s.sessionStore.Put(client.ID(), rooms, s.sessionGraceTTL)
+			}
+		} else {
+			s.sessionStore.Delete(client.ID())
+		}
 		client.Close(context.Background())
 	}()
 
@@ -402,10 +541,22 @@ func (s *Server) handleClient(client *Client) {
 		}
 	}
 
+	if resumed && s.onResume != nil {
+		if !s.onResume(client, previousRooms) {
+			client.serverClosed.Store(true)
+			client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "resume rejected")
+			return
+		}
+	}
+
 	// MED-2 fix: when the client context is cancelled, immediately set a past
 	// deadline so a goroutine blocked in ReadMessage returns at once rather
 	// than waiting up to readDeadline seconds.
+	// Tracked in clientWg so Stop() accounts for it like every other
+	// per-connection goroutine.
+	s.clientWg.Add(1)
 	go func() {
+		defer s.clientWg.Done()
 		<-client.Context().Done()
 		client.conn.SetReadDeadline(time.Now())
 	}()
@@ -422,15 +573,21 @@ func (s *Server) handleClient(client *Client) {
 		client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
 
 		if !client.CheckRateLimit(context.Background()) {
+			s.metrics.IncCounter("knet_ratelimit_rejected_total")
 			s.log.Warn("rate limit exceeded", "client_id", client.ID(), "addr", client.RemoteAddr())
 			client.serverClosed.Store(true)
 			client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "rate limit exceeded")
 			return
 		}
 
-		commandID, payload, err := protocol.Decode(data)
+		_, commandID, payload, err := protocol.Decode(data)
 		if err != nil {
 			client.serverClosed.Store(true)
+			if errors.Is(err, protocol.ErrUnsupportedVersion) {
+				s.log.Warn("unsupported protocol version", "client_id", client.ID(), "addr", client.RemoteAddr())
+				client.CloseWithCode(context.Background(), websocket.CloseUnsupportedData, "unsupported protocol version")
+				return
+			}
 			client.CloseWithCode(context.Background(), websocket.CloseProtocolError, knet.ErrInvalidMessageFormat)
 			return
 		}
@@ -469,9 +626,12 @@ func (s *Server) dispatchHandler(fn func()) {
 	s.handlerWg.Add(1)
 
 	task := func() {
+		start := time.Now()
 		defer s.handlerWg.Done()
 		defer func() {
+			s.metrics.ObserveHistogram("knet_handler_duration_seconds", time.Since(start).Seconds())
 			if r := recover(); r != nil {
+				s.metrics.IncCounter("knet_handler_panic_total")
 				s.log.Error("handler panic recovered", "panic", r, "stack", string(debug.Stack()))
 			}
 		}()
@@ -484,6 +644,7 @@ func (s *Server) dispatchHandler(fn func()) {
 	default:
 		// Worker queue is full; undo the Add so the WaitGroup stays consistent.
 		s.handlerWg.Done()
+		s.metrics.IncCounter("knet_handler_queue_full_total")
 		s.log.Warn("worker queue full, dropping message handler")
 	}
 }
@@ -625,6 +786,7 @@ func (s *Server) BroadcastCommand(ctx context.Context, commandID uint32, payload
 	})
 
 	if failCount > 0 {
+		s.metrics.IncCounter("knet_broadcast_fail_total")
 		return fmt.Errorf("broadcast: failed to deliver to %d client(s)", failCount)
 	}
 	return nil

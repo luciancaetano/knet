@@ -1,0 +1,10 @@
+services:
+  knet-stress:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: knet-stress-echo:local
+    ports:
+      - "9000:8080"
+    environment:
+      - ADDR=:8080

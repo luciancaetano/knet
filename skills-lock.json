@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "go-concurrency-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/systems-programming/skills/go-concurrency-patterns/SKILL.md",
+      "computedHash": "368ef4908fa5c81f61127e9b9f5ff2a5baea0f80e3031f34eb2a57efe9df1911"
+    }
+  }
+}

@@ -27,7 +27,7 @@ type ChatMessage struct {
 }
 
 // startTestServer starts a simple chat server for stress testing
-func startTestServer(t *testing.T, ctx context.Context) knet.WebsocketServer {
+func startTestServer(t *testing.T, ctx context.Context) knet.Server {
 	rateLimitConfig := &ws.RateLimitConfig{
 		MessagesPerSecond: 1000,
 		Burst:             2000,
@@ -38,7 +38,7 @@ func startTestServer(t *testing.T, ctx context.Context) knet.WebsocketServer {
 	var clientsMu sync.RWMutex
 	clients := make(map[string]knet.Client)
 
-	server := ws.New(ws.NewConfig(testServerAddr, rateLimitConfig, ws.AllOrigins(), func(client knet.Client) {
+	server := ws.New(ws.NewConfig(testServerAddr, rateLimitConfig, ws.AllOrigins(), func(client knet.Client) bool {
 		// Add client to tracking map
 		clientsMu.Lock()
 		clients[client.ID()] = client
@@ -51,6 +51,8 @@ func startTestServer(t *testing.T, ctx context.Context) knet.WebsocketServer {
 			delete(clients, client.ID())
 			clientsMu.Unlock()
 		}()
+
+		return true
 	}, nil))
 
 	// Register chat message handler

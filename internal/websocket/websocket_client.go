@@ -35,7 +35,11 @@ type Client struct {
 //
 // pingInterval controls how often keepalive pings are sent to the remote peer.
 // Pass 0 to use the default (54 seconds).
-func NewClient(conn *websocket.Conn, remoteAddr string, rateLimitConfig *RateLimitConfig, pingInterval time.Duration) *Client {
+//
+// sessionID, if non-empty, is reused as the client ID (resume path) instead
+// of generating a new uuid — this is how a reconnecting client keeps the
+// same identity for Room membership purposes.
+func NewClient(conn *websocket.Conn, remoteAddr string, rateLimitConfig *RateLimitConfig, pingInterval time.Duration, sessionID string) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var limiter *rate.Limiter
@@ -47,8 +51,13 @@ func NewClient(conn *websocket.Conn, remoteAddr string, rateLimitConfig *RateLim
 		pingInterval = 54 * time.Second
 	}
 
+	id := sessionID
+	if id == "" {
+		id = uuid.New().String()
+	}
+
 	client := &Client{
-		id:           uuid.New().String(),
+		id:           id,
 		conn:         conn,
 		remoteAddr:   remoteAddr,
 		ctx:          ctx,
