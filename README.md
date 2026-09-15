@@ -15,6 +15,26 @@ Go library for building game servers and real-time apps over WebSocket. Binary c
 - Built-in timeouts, payload limits, origin validation
 - Opt-in packages: `room` (client groups), `observer` (interest-managed broadcast), `syncvar` (dirty-tracked state sync), `timing` (tick scheduler + RTT ping)
 
+## Performance Benchmarks
+
+Automated suite (`.benchmark/`) measuring latency, memory/connection, throughput and Ticker jitter across 100–10,000 connections, with and without `RoomManager`/`Ticker`. See [`.benchmark/README.md`](.benchmark/README.md) for how to run it and why 10,000 is the max load tested on a single machine.
+
+**Latency (p99)** — round-trip echo time vs connections, one line per scenario
+
+<img src=".benchmark/images/latency.png" alt="Latency p99 vs connections" width="700">
+
+**Memory / connection** — heap bytes per client, isolating Room/Ticker overhead
+
+<img src=".benchmark/images/memory_per_conn.png" alt="Memory per connection vs connections" width="700">
+
+**Throughput** — server-measured messages/sec vs connections
+
+<img src=".benchmark/images/throughput.png" alt="Throughput vs connections" width="700">
+
+**Ticker jitter** — p99 drift of tick fire time vs configured interval, with/without Room broadcast
+
+<img src=".benchmark/images/ticker_jitter.png" alt="Ticker jitter vs connections" width="700">
+
 ## Install
 
 ```bash

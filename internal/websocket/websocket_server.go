@@ -593,6 +593,7 @@ func (s *Server) handleClient(client *Client, resumed bool, previousRooms []stri
 			return
 		}
 
+		s.metrics.IncCounter("knet_msg_received_total")
 		s.handleProtocolMessage(client, commandID, payload)
 	}
 }
