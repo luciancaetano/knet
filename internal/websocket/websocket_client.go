@@ -75,19 +75,20 @@ func (p connectionPayload) Subprotocol() string { return p.subprotocol }
 
 // Client implements the knet.Client interface.
 type Client struct {
-	id           string
-	conn         *websocket.Conn
-	remoteAddr   string
-	ctx          context.Context
-	cancel       context.CancelFunc
-	sendCh       chan []byte
-	closeCh      chan []byte // buffered 1; signals writePump to send a close frame
-	mu           sync.RWMutex
-	closed       bool
-	serverClosed atomic.Bool // true when the server (not the remote peer) initiated close
-	rateLimiter  *rate.Limiter
-	pingInterval time.Duration
-	payload      connectionPayload
+	id              string
+	conn            *websocket.Conn
+	remoteAddr      string
+	ctx             context.Context
+	cancel          context.CancelFunc
+	sendCh          chan []byte
+	closeCh         chan []byte // buffered 1; signals writePump to send a close frame
+	mu              sync.RWMutex
+	closed          bool
+	serverClosed    atomic.Bool // true when the server (not the remote peer) initiated close
+	rateLimiter     *rate.Limiter
+	byteRateLimiter *rate.Limiter
+	pingInterval    time.Duration
+	payload         connectionPayload
 }
 
 // NewClient creates a new WebSocket client.
@@ -102,8 +103,12 @@ func NewClient(conn *websocket.Conn, remoteAddr string, rateLimitConfig *RateLim
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var limiter *rate.Limiter
+	var byteLimiter *rate.Limiter
 	if rateLimitConfig != nil && rateLimitConfig.Enabled {
 		limiter = rate.NewLimiter(rateLimitConfig.MessagesPerSecond, rateLimitConfig.Burst)
+		if rateLimitConfig.BytesPerSecond > 0 {
+			byteLimiter = rate.NewLimiter(rateLimitConfig.BytesPerSecond, rateLimitConfig.ByteBurst)
+		}
 	}
 
 	if pingInterval <= 0 {
@@ -116,16 +121,17 @@ func NewClient(conn *websocket.Conn, remoteAddr string, rateLimitConfig *RateLim
 	}
 
 	client := &Client{
-		id:           id,
-		conn:         conn,
-		remoteAddr:   remoteAddr,
-		ctx:          ctx,
-		cancel:       cancel,
-		sendCh:       make(chan []byte, 256),
-		closeCh:      make(chan []byte, 1),
-		rateLimiter:  limiter,
-		pingInterval: pingInterval,
-		payload:      payload,
+		id:              id,
+		conn:            conn,
+		remoteAddr:      remoteAddr,
+		ctx:             ctx,
+		cancel:          cancel,
+		sendCh:          make(chan []byte, 256),
+		closeCh:         make(chan []byte, 1),
+		rateLimiter:     limiter,
+		byteRateLimiter: byteLimiter,
+		pingInterval:    pingInterval,
+		payload:         payload,
 	}
 
 	// writePump is the SOLE goroutine allowed to write to client.conn.
@@ -248,12 +254,17 @@ func (c *Client) IsAlive() bool {
 }
 
 // CheckRateLimit returns true if the client is within its configured message
-// rate.
-func (c *Client) CheckRateLimit(ctx context.Context) bool {
-	if c.rateLimiter == nil {
-		return true
+// count and byte-volume rate. size is the raw wire size of the message just
+// read; a client sending few but oversized messages is capped by the byte
+// limiter even if it stays under the message-count limit.
+func (c *Client) CheckRateLimit(ctx context.Context, size int) bool {
+	if c.rateLimiter != nil && !c.rateLimiter.Allow() {
+		return false
 	}
-	return c.rateLimiter.Allow()
+	if c.byteRateLimiter != nil && !c.byteRateLimiter.AllowN(time.Now(), size) {
+		return false
+	}
+	return true
 }
 
 // writePump is the sole goroutine permitted to write to c.conn.

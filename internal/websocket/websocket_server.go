@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -121,17 +122,28 @@ type ServerConfig struct {
 type OnResumeFn = func(client knet.Client, previousRooms []string) bool
 
 // RateLimitConfig defines per-client message rate limiting (token-bucket).
+//
+// Two independent limiters apply: MessagesPerSecond/Burst caps message
+// *count*, and BytesPerSecond/ByteBurst caps payload *volume* — a client
+// sending few but huge messages passes the count limit but is still capped
+// on bytes, closing the amplification gap a count-only limiter leaves open.
+// BytesPerSecond/ByteBurst of 0 (with Enabled true) disables only the byte
+// check, keeping count-only behavior for existing configs.
 type RateLimitConfig struct {
 	MessagesPerSecond rate.Limit
 	Burst             int
+	BytesPerSecond    rate.Limit
+	ByteBurst         int
 	Enabled           bool
 }
 
-// DefaultRateLimitConfig returns 100 msg/s with a burst of 200.
+// DefaultRateLimitConfig returns 100 msg/s (burst 200) and 1 MiB/s (burst 2 MiB).
 func DefaultRateLimitConfig() *RateLimitConfig {
 	return &RateLimitConfig{
 		MessagesPerSecond: 100,
 		Burst:             200,
+		BytesPerSecond:    1 << 20,
+		ByteBurst:         2 << 20,
 		Enabled:           true,
 	}
 }
@@ -573,7 +585,7 @@ func (s *Server) handleClient(client *Client, resumed bool, previousRooms []stri
 
 		_ = client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
 
-		if !client.CheckRateLimit(context.Background()) {
+		if !client.CheckRateLimit(context.Background(), len(data)) {
 			s.metrics.IncCounter("knet_ratelimit_rejected_total")
 			s.log.Warn("rate limit exceeded", "client_id", client.ID(), "addr", client.RemoteAddr())
 			client.serverClosed.Store(true)
@@ -599,21 +611,34 @@ func (s *Server) handleClient(client *Client, resumed bool, previousRooms []stri
 }
 
 // handleProtocolMessage routes a decoded message to its registered handler.
+//
+// Backpressure fix: a queue-full rejection from dispatchHandler is no longer
+// a silent drop. The offending client is closed with a policy-violation code
+// so it gets an explicit signal to back off/reconnect instead of believing
+// its message was accepted.
 func (s *Server) handleProtocolMessage(client *Client, commandID uint32, payload []byte) {
+	var queued bool
 	if commandID == knet.CmdJSONRPC {
-		s.dispatchHandler(func() { s.handleJSONRPCMessage(client, payload) })
-		return
+		queued = s.dispatchHandler(func() { s.handleJSONRPCMessage(client, payload) })
+	} else if handler, ok := s.handlers.Load(commandID); ok {
+		if handlerFunc, ok := handler.(knet.HandlerFunc); ok {
+			queued = s.dispatchHandler(func() { handlerFunc(client, payload) })
+		} else {
+			queued = true // unknown handler type: nothing to dispatch, not a backpressure case
+		}
+	} else {
+		queued = true // unknown commands are silently ignored (fire-and-forget design)
 	}
 
-	if handler, ok := s.handlers.Load(commandID); ok {
-		if handlerFunc, ok := handler.(knet.HandlerFunc); ok {
-			s.dispatchHandler(func() { handlerFunc(client, payload) })
-		}
+	if !queued {
+		client.serverClosed.Store(true)
+		_ = client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "server overloaded, try again later")
 	}
-	// Unknown commands are silently ignored (fire-and-forget design).
 }
 
-// dispatchHandler submits fn to the worker pool.
+// dispatchHandler submits fn to the worker pool. It returns false if the
+// queue was full and fn was dropped, so the caller can apply backpressure
+// (e.g. close the client) instead of leaving the sender unaware.
 //
 // CRIT-2 fix: every handler runs inside a recover() so a panicking handler
 // cannot crash the server process.
@@ -622,9 +647,7 @@ func (s *Server) handleProtocolMessage(client *Client, commandID uint32, payload
 // in-flight work.
 //
 // HIGH-3 fix: the bounded worker pool prevents unbounded goroutine growth.
-// If the queue is full the task is dropped (with a log) rather than spawning
-// an unlimited number of goroutines.
-func (s *Server) dispatchHandler(fn func()) {
+func (s *Server) dispatchHandler(fn func()) bool {
 	s.handlerWg.Add(1)
 
 	task := func() {
@@ -642,12 +665,13 @@ func (s *Server) dispatchHandler(fn func()) {
 
 	select {
 	case s.workerCh <- task:
-		// queued successfully
+		return true
 	default:
 		// Worker queue is full; undo the Add so the WaitGroup stays consistent.
 		s.handlerWg.Done()
 		s.metrics.IncCounter("knet_handler_queue_full_total")
 		s.log.Warn("worker queue full, dropping message handler")
+		return false
 	}
 }
 
@@ -789,6 +813,9 @@ func (s *Server) BroadcastCommand(ctx context.Context, commandID uint32, payload
 
 	if failCount > 0 {
 		s.metrics.IncCounter("knet_broadcast_fail_total")
+		// "failed" here means sendRaw's non-blocking buffer-full drop (a slow
+		// client falling behind), not a transport/write error — the message
+		// was never attempted on the wire for that client.
 		return fmt.Errorf("broadcast: failed to deliver to %d client(s)", failCount)
 	}
 	return nil
@@ -796,11 +823,21 @@ func (s *Server) BroadcastCommand(ctx context.Context, commandID uint32, payload
 
 // --- Internal helpers ---------------------------------------------------------
 
-// extractIP returns the host component of a "host:port" remote address.
+// extractIP returns a normalized host component of a "host:port" remote
+// address, used as the per-IP connection-limit key.
+//
+// net.SplitHostPort alone returns the IPv6 zone as part of the host (e.g.
+// "fe80::1%eth0"), which is textually correct but not a stable dedup key:
+// the same address can arrive with or without a zone depending on the
+// listener/interface. Parsing through netip and stripping the zone gives a
+// canonical key so perIPConns actually groups by address, not by address+zone.
 func extractIP(remoteAddr string) string {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		return remoteAddr
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return addr.WithZone("").Unmap().String()
 	}
 	return host
 }

@@ -159,14 +159,22 @@ func (r *room) BroadcastExcept(ctx context.Context, excludeID string, commandID 
 	return r.broadcastFiltered(ctx, excludeID, commandID, payload)
 }
 
+// maxBroadcastConcurrency bounds how many Send calls a single broadcast runs
+// at once, so a room with thousands of members can't fork thousands of
+// goroutines per tick (DoS via unbounded fan-out).
+const maxBroadcastConcurrency = 64
+
+// perClientSendTimeout bounds how long a broadcast waits on any one client's
+// send buffer, so a stalled client can't hold a concurrency slot forever.
+const perClientSendTimeout = 2 * time.Second
+
 // broadcastFiltered sends to all clients except excludeID (empty = send to all).
 // The client map is snapshotted under the read lock; sending happens outside
 // the lock so slow clients cannot stall room operations.
 //
-// Deliveries run concurrently (one goroutine per target) so a single slow or
-// blocked client delays only its own delivery instead of serializing the
-// whole broadcast behind it — important for tick-driven broadcasts where the
-// caller has a fixed time budget per tick.
+// Deliveries run concurrently, bounded by a semaphore (maxBroadcastConcurrency)
+// so a single slow or blocked client delays only its own delivery without
+// letting the number of in-flight goroutines grow with room size.
 func (r *room) broadcastFiltered(ctx context.Context, excludeID string, commandID uint32, payload []byte) error {
 	r.mu.RLock()
 	targets := make([]knet.Client, 0, len(r.clients))
@@ -177,13 +185,19 @@ func (r *room) broadcastFiltered(ctx context.Context, excludeID string, commandI
 	}
 	r.mu.RUnlock()
 
+	sem := make(chan struct{}, maxBroadcastConcurrency)
 	var failCount atomic.Int64
 	var wg sync.WaitGroup
 	wg.Add(len(targets))
 	for _, c := range targets {
+		sem <- struct{}{}
 		go func(c knet.Client) {
 			defer wg.Done()
-			if err := c.Send(ctx, commandID, payload); err != nil {
+			defer func() { <-sem }()
+
+			sendCtx, cancel := context.WithTimeout(ctx, perClientSendTimeout)
+			defer cancel()
+			if err := c.Send(sendCtx, commandID, payload); err != nil {
 				failCount.Add(1)
 			}
 		}(c)

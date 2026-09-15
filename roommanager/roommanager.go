@@ -223,6 +223,14 @@ func (m *Manager) HandleDisconnect(client knet.Client, voluntary bool) {
 // member-reconnected is broadcast to each room's other members; the client
 // itself receives a CmdRoomResumeSync listing its rejoined rooms. Returns
 // true to accept the resume (RoomManager never rejects a resume itself).
+//
+// Security note: rejoining pending rooms trusts that the caller's own
+// OnResume already authenticated the client for the resumed session ID
+// (session IDs are opaque to knet — see [knet.SessionStore]). On top of
+// that, each room re-join is still run through [Manager.OnBeforeJoin], the
+// same authorization hook normal joins go through, so an application that
+// wants per-room checks on resume doesn't need a second hook — it's the
+// one it already has.
 func (m *Manager) HandleResume(client knet.Client, previousRooms []string) bool {
 	clientID := client.ID()
 
@@ -244,6 +252,13 @@ func (m *Manager) HandleResume(client knet.Client, previousRooms []string) bool 
 
 	resyncPayload := RoomResumeSync{Rooms: make([]RoomResumeSyncEntry, 0, len(roomIDs))}
 	for _, roomID := range roomIDs {
+		if beforeJoin := m.getBeforeJoin(); beforeJoin != nil {
+			if err := beforeJoin(client, roomID); err != nil {
+				m.sendError(client, roomID, ErrCodeJoinRejected, err.Error())
+				continue
+			}
+		}
+
 		m.mu.Lock()
 		rm, exists := m.rooms[roomID]
 		if !exists {
