@@ -57,19 +57,19 @@ knet ships an automated benchmark suite (`.benchmark/` in the repo) measuring la
 
 **Latency (p99)** — round-trip echo time vs connections, one line per scenario (baseline / room / ticker / room+ticker)
 
-<img src="assets/benchmark/latency.png" alt="Latency p99 vs connections" width="700">
+![Latency p99 vs connections](assets/benchmark/latency.png){ width="700" }
 
 **Memory / connection** — heap bytes per client, isolating the fixed cost `room`/`timing` add on top of a bare connection
 
-<img src="assets/benchmark/memory_per_conn.png" alt="Memory per connection vs connections" width="700">
+![Memory per connection vs connections](assets/benchmark/memory_per_conn.png){ width="700" }
 
 **Throughput** — messages/sec the server sustains, measured server-side via the `knet_msg_received_total` metric
 
-<img src="assets/benchmark/throughput.png" alt="Throughput vs connections" width="700">
+![Throughput vs connections](assets/benchmark/throughput.png){ width="700" }
 
 **Ticker jitter** — p99 drift between a tick's actual fire time and its configured interval, comparing plain `Register` against `RegisterRoom` (which also broadcasts)
 
-<img src="assets/benchmark/ticker_jitter.png" alt="Ticker jitter vs connections" width="700">
+![Ticker jitter vs connections](assets/benchmark/ticker_jitter.png){ width="700" }
 
 See the [benchmark suite README](https://github.com/luciancaetano/knet/tree/main/.benchmark) for how to reproduce these numbers.
 

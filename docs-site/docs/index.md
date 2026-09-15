@@ -1,6 +1,6 @@
 # knet
 
-<img src="assets/knet-dog.png" alt="knet mascot" width="180">
+![knet mascot](assets/knet-dog.png){ width="180" }
 
 Go library for building game servers and real-time apps over WebSocket. Binary command-pattern protocol (4-byte command ID + payload) with optional JSON-RPC 2.0.
 
