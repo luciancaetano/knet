@@ -489,7 +489,7 @@ func (m *Manager) handleJoin(client knet.Client, payload []byte) {
 		fn(client, req.RoomID)
 	}
 	if handler != nil {
-		handler.OnJoin(client)
+		handler.OnJoin(client, req.Metadata)
 	}
 
 	m.broadcastMemberEvent(req.RoomID, clientID, MemberJoined)

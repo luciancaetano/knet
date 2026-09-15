@@ -90,10 +90,10 @@ For rooms that need their own state (a match, a game instance) instead of routin
 
 ```go
 type RoomHandler interface {
-	OnCreate(v room.View)      // once, when the room is created (first join)
-	OnJoin(client knet.Client) // every join to this room instance
-	OnLeave(client knet.Client) // every leave (explicit, disconnect, or grace expiry)
-	OnDispose()                // once, when the room closes (membership hits zero)
+	OnCreate(v room.View)                                 // once, when the room is created (first join)
+	OnJoin(client knet.Client, metadata json.RawMessage)   // every join to this room instance
+	OnLeave(client knet.Client)                            // every leave (explicit, disconnect, or grace expiry)
+	OnDispose()                                            // once, when the room closes (membership hits zero)
 }
 ```
 
@@ -103,15 +103,17 @@ type MatchRoom struct {
 	players map[string]bool
 }
 
-func (r *MatchRoom) OnCreate(v room.View)   { r.view = v; r.players = map[string]bool{} }
-func (r *MatchRoom) OnJoin(c knet.Client)   { r.players[c.ID()] = true }
-func (r *MatchRoom) OnLeave(c knet.Client)  { delete(r.players, c.ID()) }
-func (r *MatchRoom) OnDispose()             { /* cleanup */ }
+func (r *MatchRoom) OnCreate(v room.View)                               { r.view = v; r.players = map[string]bool{} }
+func (r *MatchRoom) OnJoin(c knet.Client, metadata json.RawMessage)     { r.players[c.ID()] = true }
+func (r *MatchRoom) OnLeave(c knet.Client)                              { delete(r.players, c.ID()) }
+func (r *MatchRoom) OnDispose()                                         { /* cleanup */ }
 
 rooms.Define("match", func() roommanager.RoomHandler { return &MatchRoom{} })
 ```
 
 The client requests a typed room by sending `RoomType` alongside `RoomID` on `CmdRoomJoin` (see [Wire protocol](#wire-protocol) below). `Define` is purely additive: the global hooks (`OnAfterJoin`, etc.) keep firing for every room regardless of type, so existing flat-mode apps (e.g. the [Chat Example](chat-example.md), which never sets `RoomType`) are unaffected. Scope is intentionally limited to `OnCreate`/`OnJoin`/`OnLeave`/`OnDispose` — auth-like rejection and reconnects are still `OnBeforeJoin` and `HandleResume`'s job.
+
+`metadata` is the client's optional `RoomJoinRequest.Metadata` — arbitrary app-defined JSON attached to the join itself (e.g. a display name), handed to `OnJoin` before the join is observable by any other member. This is the intended way to make join-time data available to a room: it arrives as part of the room's own join event, in order, with no race against a separate call the room can't see or sequence against. See the [Chat Example](chat-example.md#24-lobbyroom--a-colyseus-style-room-class) for a worked example (a display name stored in `OnJoin` before the presence broadcast).
 
 ## Wire protocol
 
@@ -128,7 +130,7 @@ Reserved command range `0xFFFE0001`–`0xFFFE0008` — do not register handlers 
 | `0xFFFE0007` | `CmdRoomResumeSync` | server → client | resumed session's room membership sync |
 | `0xFFFE0008` | `CmdRoomMessage` | both | client → server to send, server → client to deliver, an arbitrary room-scoped message |
 
-`RoomJoinRequest` (payload of `CmdRoomJoin`) carries an optional `roomType` field naming a handler registered via `Define` (see above). Omit it (or send `""`) for a legacy flat room with no handler instance — fully backward compatible.
+`RoomJoinRequest` (payload of `CmdRoomJoin`) carries an optional `roomType` field naming a handler registered via `Define` (see above), and an optional `metadata` field (arbitrary JSON) delivered to that handler's `OnJoin` (see above). Both are omittable for a legacy flat room with no handler instance — fully backward compatible.
 
 `CmdRoomMessage` is handled off the connection's read loop (bounded worker pool) and fans out concurrently per target — sending to a room does not block the sender's connection, and a client may be a member of several rooms at once without the message handling serializing across them.
 

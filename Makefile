@@ -50,6 +50,7 @@ lint:
 	golangci-lint run ./...
 
 chat:
+	cd clients/js && npm install && npm run build
 	cd examples/chat && go run .
 
 # Install docs dependencies (mkdocs-material) into a local venv

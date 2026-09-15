@@ -45,15 +45,26 @@ const (
 	keyFile  = "key.pem"
 )
 
+// jsClientDist is where the built @lcaetano/knet-client ESM bundle lives —
+// index.html imports it from here (/vendor/knet-client.js) instead of a CDN,
+// so the example always runs against the client code actually in this repo,
+// with no npm publish/CDN propagation delay in the loop. Run `npm run build`
+// in clients/js after changing the client.
+const jsClientDist = "../../clients/js/dist"
+
 // --8<-- [start:static-server]
 // serveStatic serves index.html (and knet-dog.png) over HTTPS on its own
 // port, so the example works with a single "go run ." — no separate static
 // server needed. The WebSocket traffic still goes to the knet server on
 // :8080/ws (also over TLS, i.e. wss://).
 func serveStatic(ctx context.Context, addr string) *http.Server {
+	mux := http.NewServeMux()
+	mux.Handle("/vendor/", http.StripPrefix("/vendor/", http.FileServer(http.Dir(jsClientDist))))
+	mux.Handle("/", http.FileServer(http.Dir(".")))
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           http.FileServer(http.Dir(".")),
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -132,10 +143,6 @@ func main() {
 	// being treated as brand new.
 	cfg.OnResume = func(client knet.Client, previousRooms []string) bool {
 		return chat.roomManager.HandleResume(client, previousRooms)
-	}
-
-	if err := server.RegisterHandler(ctx, CmdSetName, chat.handleSetName); err != nil {
-		log.Fatalf("register SetName handler: %v", err)
 	}
 
 	serveStatic(ctx, ":8081")

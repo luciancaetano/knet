@@ -508,7 +508,9 @@ type fakeHandler struct {
 }
 
 func (h *fakeHandler) OnCreate(v room.View) { *h.events = append(*h.events, "create:"+v.ID()) }
-func (h *fakeHandler) OnJoin(c knet.Client) { *h.events = append(*h.events, "join:"+c.ID()) }
+func (h *fakeHandler) OnJoin(c knet.Client, _ json.RawMessage) {
+	*h.events = append(*h.events, "join:"+c.ID())
+}
 func (h *fakeHandler) OnLeave(c knet.Client) {
 	*h.events = append(*h.events, "leave:"+c.ID())
 }

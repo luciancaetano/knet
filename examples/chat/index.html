@@ -74,18 +74,23 @@
 
 <script type="module">
 // --8<-- [start:import]
-// Official client, loaded straight from a CDN — no build step needed for
-// this plain index.html. Handles the wire format, reconnect and events.
-// RoomManager is the optional room join/leave/message layer on top of it.
-import { KNetClient, RoomManager } from "https://esm.sh/@lcaetano/knet-client@latest";
+// Local client build, served by main.go's serveStatic at /vendor/ (see
+// jsClientDist) — no CDN, no npm publish/propagation delay: always the
+// client code actually in this repo (clients/js). Handles the wire format,
+// reconnect and events. RoomManager is the optional room join/leave/message
+// layer on top of it. Run `make chat` (rebuilds the client) or
+// `npm run build` in clients/js by hand after changing it.
+import { KNetClient, RoomManager } from "/vendor/index.js";
 // --8<-- [end:import]
 
 // --8<-- [start:commands]
-// Only one custom command left — RoomManager owns join/leave/presence/chat
-// via its own reserved commands (see docs-site/docs/room-manager.md).
-const CmdSetName = 0x0001;
+// No custom commands left for sending — RoomManager owns join/leave/
+// presence/chat via its own reserved commands (see
+// docs-site/docs/room-manager.md). UserJoined/UserLeft are still ours: the
+// server broadcasts them, with the display name, from lobbyRoom.OnJoin/OnLeave.
 const CmdUserJoined = 0x0003;
 const CmdUserLeft = 0x0004;
+const CmdRoomSnapshot = 0x0005;
 const ROOM_ID = "lobby";
 const ROOM_TYPE = "lobby"; // matches roomManager.Define("lobby", ...) on the server
 // --8<-- [end:commands]
@@ -145,12 +150,13 @@ client.on("connected", async () => {
   document.getElementById("leaveBtn").disabled = false;
   textEl.disabled = false;
   document.getElementById("sendBtn").disabled = false;
-  // Resend the name and rejoin the room on every connect (initial AND
-  // reconnect): the server assigns a new clientID per handshake, and
-  // RoomManager clears currentRooms on every reconnect (see "Reconnection in
-  // practice" in the docs), so both need to happen again here.
-  client.sendString(CmdSetName, nameEl.value || "guest");
-  await rooms.joinRoom(ROOM_ID, ROOM_TYPE);
+  // Rejoin the room on every connect (initial AND reconnect): the server
+  // assigns a new clientID per handshake, and RoomManager clears
+  // currentRooms on every reconnect (see "Reconnection in practice" in the
+  // docs). The display name rides the join itself, as metadata — the room's
+  // OnJoin (server.go) stores it before broadcasting presence, so there's no
+  // race with a separate "set my name" call the room can't see or order.
+  await rooms.joinRoom(ROOM_ID, ROOM_TYPE, { name: nameEl.value || "guest" });
 });
 
 client.on("disconnected", (code, reason) => {
@@ -165,12 +171,20 @@ client.on("disconnected", (code, reason) => {
   reconnectAttempt++;
 });
 
+client.onCommand(CmdRoomSnapshot, (payload) => {
+  // Fills in the names of members already in the room when we join — sent
+  // once, right after join, before we could receive any message from them.
+  const json = JSON.parse(new TextDecoder().decode(payload));
+  for (const m of json.members) names.set(m.clientId, m.name);
+});
 client.onCommand(CmdUserJoined, (payload) => {
   const json = JSON.parse(new TextDecoder().decode(payload));
+  names.set(json.clientId, json.name);
   addMessage(`${json.name} entrou`, "join");
 });
 client.onCommand(CmdUserLeft, (payload) => {
   const json = JSON.parse(new TextDecoder().decode(payload));
+  names.delete(json.clientId);
   addMessage(`${json.name} saiu`, "left");
 });
 rooms.on("memberDisconnected", (roomId, clientId) => {
@@ -192,6 +206,10 @@ document.getElementById("leaveBtn").addEventListener("click", () => {
 });
 document.getElementById("sendBtn").addEventListener("click", () => {
   if (!textEl.value) return;
+  // sendMessage is only delivered to other room members, not echoed back to
+  // the sender — render our own message locally instead of waiting for one
+  // that will never arrive.
+  addMessage(`${nameEl.value || "guest"} (você): ${textEl.value}`, "chat");
   rooms.sendMessage(ROOM_ID, "chat", textEl.value);
   textEl.value = "";
 });

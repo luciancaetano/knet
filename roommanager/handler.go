@@ -1,6 +1,8 @@
 package roommanager
 
 import (
+	"encoding/json"
+
 	"github.com/luciancaetano/knet"
 	"github.com/luciancaetano/knet/internal/room"
 )
@@ -14,7 +16,12 @@ type RoomHandler interface {
 	// OnCreate is called once, when the room is created (first join).
 	OnCreate(v room.View)
 	// OnJoin is called every time a client joins this room instance.
-	OnJoin(client knet.Client)
+	// metadata is the (possibly nil) RoomJoinRequest.Metadata the client sent
+	// with the join — e.g. a display name — available before the join is
+	// observable by any other member, so a handler can apply it (store a
+	// name, validate it, reject the join) with no race against a separate
+	// call.
+	OnJoin(client knet.Client, metadata json.RawMessage)
 	// OnLeave is called every time a client leaves (explicit leave,
 	// voluntary disconnect, or grace-period expiry) this room instance.
 	OnLeave(client knet.Client)

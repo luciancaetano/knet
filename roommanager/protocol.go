@@ -1,5 +1,7 @@
 package roommanager
 
+import "encoding/json"
+
 // Reserved command IDs for RoomManager's join/leave/event protocol.
 // Distinct from knet's own reserved IDs (knet.CmdJSONRPC, knet.CmdJSONRPCError)
 // and from the ad-hoc ranges already in use by the JS/Unity clients
@@ -48,6 +50,11 @@ type RoomJoinRequest struct {
 	// RoomType names a handler registered via Manager.Define. Empty means no
 	// handler is attached to this room (legacy flat mode).
 	RoomType string `json:"roomType,omitempty"`
+	// Metadata is opaque, app-defined join-time data (e.g. a display name),
+	// handed to RoomHandler.OnJoin so an application can act on it before the
+	// join is observable by other members — avoiding a separate side-channel
+	// call racing the join itself.
+	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 
 // RoomLeaveRequest is the payload of CmdRoomLeave.
