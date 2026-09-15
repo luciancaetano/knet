@@ -44,6 +44,10 @@ Any change to the JS client bumps its version following [Semantic Versioning](ht
 
 Client (`clients/js`) and server (`knet` Go module) versions track the same MAJOR.MINOR — only PATCH moves independently between them.
 
+## Commit & push policy
+
+Always ask the user for confirmation before running `git commit` or `git push` — never do either without an explicit go-ahead first.
+
 ## Commits
 
 Format: `<gitmoji> <type>(<scope>): <description>`
