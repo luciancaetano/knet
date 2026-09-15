@@ -296,6 +296,25 @@ func (c *Client) writePump() {
 				return
 			}
 
+			// Drain any backlog non-blockingly under the same write deadline,
+			// so a burst of queued sends amortizes the per-message select +
+			// SetWriteDeadline cost instead of paying it once per message.
+			// Capped so a single writePump iteration can't starve pings/close.
+		drainBacklog:
+			for i := 0; i < 63; i++ {
+				select {
+				case next, ok := <-c.sendCh:
+					if !ok {
+						return
+					}
+					if err := c.conn.WriteMessage(websocket.BinaryMessage, next); err != nil {
+						return
+					}
+				default:
+					break drainBacklog
+				}
+			}
+
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {

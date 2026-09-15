@@ -27,6 +27,16 @@ Generated into `images/` (and copied to `docs-site/docs/assets/benchmark/`):
 
 X axis is log-scaled (connections grow 100→10000).
 
+> **Caveat:** the load-generating client (`benchClient`) and the `knet`
+> server under test run in the same OS process, sharing the same cores.
+> `throughput.png` flattening as connections grow past a few hundred
+> reflects the combined process's CPU ceiling, not necessarily the server's
+> — the client's own encode/dial/read-loop goroutines are competing for the
+> same GOMAXPROCS. Treat the absolute throughput numbers as a lower bound on
+> server capacity, not an exact measurement; a true isolated measurement
+> needs the client driven from a separate process (skipped here — add if a
+> real regression needs pinning down to server-only cost).
+
 ## Run everything
 
 ```bash
