@@ -22,7 +22,7 @@ server.RegisterHandler(ctx, ChatCmd, func(client knet.Client, payload []byte) {
 })
 ```
 
-See the [Chat Example (JS)](chat-example.md) for a full, runnable walkthrough of `room` in a real multi-user chat server.
+Need named/discoverable rooms, client-driven join/leave commands, and reconnect grace periods out of the box instead of hand-rolling them on top of `room`? See [Room Manager](room-manager.md) — that's what the [Chat Example](chat-example.md) uses.
 
 ### API
 

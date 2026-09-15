@@ -146,6 +146,36 @@ command ID arrives. `SyncVarType` supports `Int32`, `Int64`, `Float32`,
 
 
 
+## Rooms
+
+Optional layer for `roommanager/` on the server (join/leave/membership events):
+
+```csharp
+var client = gameObject.AddComponent<Client>();
+var rooms = RoomManager.Attach(client);
+
+rooms.OnMemberJoined += (roomId, clientId) => Debug.Log($"{clientId} joined {roomId}");
+rooms.OnRoomsLost += () => Debug.Log("reconnected — rejoin any rooms you need");
+
+await client.ConnectAsync();
+var result = await rooms.JoinRoomAsync("lobby-1");
+await rooms.LeaveRoomAsync("lobby-1");
+```
+
+Send an arbitrary message to a room (e.g. chat) — broadcast to every other
+member, not the whole server:
+
+```csharp
+rooms.OnMessage += (roomId, senderId, type, data) => Debug.Log($"{senderId}: {type} {data}");
+await rooms.SendMessageAsync("lobby-1", "chat", "hello");
+```
+
+`JoinRoomAsync`/`LeaveRoomAsync` throw on a server error or after a 10s
+timeout (configurable via `RoomManager.Attach(client, requestTimeoutSeconds)`).
+Note: this client doesn't yet persist a session ID across reconnects, so
+every reconnect clears `rooms.CurrentRooms` and fires `OnRoomsLost` rather
+than resuming — rejoin any rooms your app needs after that event.
+
 ## JSON-RPC
 
 The server supports JSON-RPC 2.0 for request-response style calls.

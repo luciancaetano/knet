@@ -46,6 +46,7 @@ nav:
   - Getting Started: getting-started.md
   - Server API: server-api.md
   - Rooms & Observer: rooms-observer.md
+  - Room Manager: room-manager.md
   - SyncVar & Timing: syncvar-timing.md
   - Clients:
       - JavaScript Client: js-client.md

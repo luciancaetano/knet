@@ -87,14 +87,13 @@ func main() {
 		chat.onDisconnect,
 	)
 	cfg = ws.WithTLS(cfg, certFile, keyFile) // enables wss://
+	cfg.OnResume = chat.onResume             // resumes pending room membership after a reconnect
 
 	server := ws.New(cfg)
+	chat.attachRoomManager(server)
 
 	if err := server.RegisterHandler(ctx, CmdSetName, chat.handleSetName); err != nil {
 		log.Fatalf("register SetName handler: %v", err)
-	}
-	if err := server.RegisterHandler(ctx, CmdChat, chat.handleChat); err != nil {
-		log.Fatalf("register Chat handler: %v", err)
 	}
 
 	serveStatic(ctx, ":8081")

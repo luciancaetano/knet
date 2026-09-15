@@ -51,6 +51,37 @@ const result = await client.callRpc<{ score: number }>("getScore", { userId: 42 
 
 Rejects after 30s with no response, or immediately if the server returns a JSON-RPC error object — matches the server's [`RegisterJSONRPCHandler` / `HandleJSONRPC`](server-api.md#json-rpc-pattern-requestresponse).
 
+## Rooms
+
+Optional layer for [`roommanager`](room-manager.md) on the server (join/leave/membership events):
+
+```ts
+import { RoomManager } from "@lcaetano/knet-client";
+
+const rooms = new RoomManager(client);
+
+const { members } = await rooms.joinRoom("lobby-1");
+rooms.on("memberJoined", (roomId, clientId) => console.log(roomId, clientId, "joined"));
+rooms.on("roomsLost", () => console.log("reconnected — rejoin any rooms you need"));
+
+await rooms.leaveRoom("lobby-1");
+```
+
+Send an arbitrary message to a room (e.g. chat) — broadcast to every other
+member, not the whole server:
+
+```ts
+rooms.on("message", (roomId, senderId, type, data) => console.log(roomId, senderId, type, data));
+await rooms.sendMessage("lobby-1", "chat", "hello");
+```
+
+`joinRoom`/`leaveRoom` reject on a server error or after a 10s timeout
+(configurable via `new RoomManager(client, { requestTimeoutMs })`). Note: this
+client doesn't yet persist a session ID across reconnects, so every reconnect
+clears `rooms.currentRooms` and fires `roomsLost` rather than resuming —
+rejoin any rooms your app needs after that event. See the [Chat Example](chat-example.md)
+for a full runnable walkthrough.
+
 ## Reconnect
 
 ```ts

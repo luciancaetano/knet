@@ -76,15 +76,17 @@
 // --8<-- [start:import]
 // Official client, loaded straight from a CDN — no build step needed for
 // this plain index.html. Handles the wire format, reconnect and events.
-import { KNetClient } from "https://esm.sh/@lcaetano/knet-client@latest";
+// RoomManager is the optional room join/leave/message layer on top of it.
+import { KNetClient, RoomManager } from "https://esm.sh/@lcaetano/knet-client@latest";
 // --8<-- [end:import]
 
 // --8<-- [start:commands]
+// Only one custom command left — RoomManager owns join/leave/presence/chat
+// via its own reserved commands (see docs-site/docs/room-manager.md).
 const CmdSetName = 0x0001;
-const CmdChat = 0x0002;
 const CmdUserJoined = 0x0003;
 const CmdUserLeft = 0x0004;
-const CmdUserDisconnected = 0x0005;
+const ROOM_ID = "lobby";
 // --8<-- [end:commands]
 
 // --8<-- [start:close-reason]
@@ -105,6 +107,7 @@ function describeCloseReason(code, neverOpened, url) {
 // --8<-- [start:ui]
 const url = "wss://localhost:8080/ws";
 const client = new KNetClient({ url });
+const rooms = new RoomManager(client);
 let connectStartedAt = 0;
 let reconnectAttempt = 0;
 let leftVoluntarily = false;
@@ -112,6 +115,10 @@ const statusEl = document.getElementById("status");
 const messagesEl = document.getElementById("messages");
 const nameEl = document.getElementById("name");
 const textEl = document.getElementById("text");
+
+// clientID -> display name, populated from CmdUserJoined/CmdUserLeft so we
+// can label incoming room messages (RoomManager only gives us senderId).
+const names = new Map();
 
 // Tailwind classes per message kind — chat messages stay neutral, presence
 // events are color-coded with the Go brand palette.
@@ -130,17 +137,19 @@ function addMessage(text, kind = "chat") {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-client.on("connected", () => {
+client.on("connected", async () => {
   reconnectAttempt = 0;
   statusEl.textContent = "conectado";
   statusEl.className = "font-semibold text-gopher-aqua";
   document.getElementById("leaveBtn").disabled = false;
   textEl.disabled = false;
   document.getElementById("sendBtn").disabled = false;
-  // Resend the name on every connect (initial AND reconnect): the server
-  // assigns a new clientID per handshake, so it has no memory of who this
-  // socket used to be.
+  // Resend the name and rejoin the room on every connect (initial AND
+  // reconnect): the server assigns a new clientID per handshake, and
+  // RoomManager clears currentRooms on every reconnect (see "Reconnection in
+  // practice" in the docs), so both need to happen again here.
   client.sendString(CmdSetName, nameEl.value || "guest");
+  await rooms.joinRoom(ROOM_ID);
 });
 
 client.on("disconnected", (code, reason) => {
@@ -155,10 +164,6 @@ client.on("disconnected", (code, reason) => {
   reconnectAttempt++;
 });
 
-client.onCommand(CmdChat, (payload) => {
-  const json = JSON.parse(new TextDecoder().decode(payload));
-  addMessage(`${json.from}: ${json.text}`, "chat");
-});
 client.onCommand(CmdUserJoined, (payload) => {
   const json = JSON.parse(new TextDecoder().decode(payload));
   addMessage(`${json.name} entrou`, "join");
@@ -167,9 +172,12 @@ client.onCommand(CmdUserLeft, (payload) => {
   const json = JSON.parse(new TextDecoder().decode(payload));
   addMessage(`${json.name} saiu`, "left");
 });
-client.onCommand(CmdUserDisconnected, (payload) => {
-  const json = JSON.parse(new TextDecoder().decode(payload));
-  addMessage(`${json.name} caiu (conexão perdida)`, "disconnected");
+rooms.on("memberDisconnected", (roomId, clientId) => {
+  addMessage(`${names.get(clientId) || clientId} caiu (conexão perdida)`, "disconnected");
+});
+rooms.on("message", (roomId, senderId, type, data) => {
+  if (type !== "chat") return;
+  addMessage(`${names.get(senderId) || senderId}: ${data}`, "chat");
 });
 
 document.getElementById("connectBtn").addEventListener("click", () => {
@@ -183,7 +191,7 @@ document.getElementById("leaveBtn").addEventListener("click", () => {
 });
 document.getElementById("sendBtn").addEventListener("click", () => {
   if (!textEl.value) return;
-  client.sendString(CmdChat, textEl.value);
+  rooms.sendMessage(ROOM_ID, "chat", textEl.value);
   textEl.value = "";
 });
 textEl.addEventListener("keydown", (ev) => {
