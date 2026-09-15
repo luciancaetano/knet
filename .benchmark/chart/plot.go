@@ -162,6 +162,8 @@ func logAxis(p *plot.Plot, loads []float64) {
 	p.X.Scale = plot.LogScale{}
 	p.X.Tick.Marker = connTicks{values: loads}
 	p.Add(plotter.NewGrid())
+	p.Legend.Top = true
+	p.Legend.Left = true
 }
 
 // distinctConns collects the sorted, unique connection counts present across
@@ -192,14 +194,18 @@ func toXY(rows []row, f func(row) float64) plotter.XYs {
 	return pts
 }
 
-// labelPoints adds a text label with each point's Y value above the marker,
-// so exact values are readable without hovering/zooming.
+// labelPoints adds a text label only on the last point of the series (the
+// value most readers care about, and the only spot guaranteed not to collide
+// with a neighboring series at the same X).
 func labelPoints(p *plot.Plot, pts plotter.XYs, format string) error {
-	labels := make([]string, len(pts))
-	for i, pt := range pts {
-		labels[i] = fmt.Sprintf(format, pt.Y)
+	if len(pts) == 0 {
+		return nil
 	}
-	l, err := plotter.NewLabels(plotter.XYLabels{XYs: pts, Labels: labels})
+	last := pts[len(pts)-1]
+	l, err := plotter.NewLabels(plotter.XYLabels{
+		XYs:    plotter.XYs{last},
+		Labels: []string{fmt.Sprintf(format, last.Y)},
+	})
 	if err != nil {
 		return err
 	}
