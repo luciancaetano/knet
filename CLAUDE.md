@@ -38,9 +38,11 @@ Test layout mirrors this split: `tests/unit`, `tests/e2e`, `tests/stress` (separ
 
 Docs: `doc.go` is the package-level godoc (protocol format, quick start). `docs-site/` + `mkdocs.yml` build the mkdocs site (`make docs`, served at https://luciancaetano.github.io/knet/); README.md is the canonical protocol/config/API reference — check it before re-deriving usage examples.
 
-## JS client (examples/chat/js)
+## JS client (clients/js)
 
 Any change to the JS client bumps its version following [Semantic Versioning](https://semver.org) (MAJOR.MINOR.PATCH: MAJOR = breaking API, MINOR = backward-compatible feature, PATCH = backward-compatible fix). After bumping the version, run `npm install` in that package to regenerate the lockfile hashes.
+
+Client (`clients/js`) and server (`knet` Go module) versions track the same MAJOR.MINOR — only PATCH moves independently between them.
 
 ## Commits
 
