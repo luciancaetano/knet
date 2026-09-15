@@ -11,6 +11,8 @@ namespace Knet
     public class RoomJoinRequest
     {
         public string roomId;
+        /// Name of a handler registered server-side via Manager.Define. Empty for legacy flat rooms.
+        public string roomType;
     }
 
     [Serializable]

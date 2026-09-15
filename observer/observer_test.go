@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/luciancaetano/knet/room"
+	"github.com/luciancaetano/knet/internal/room"
 )
 
 func TestObserverSetOwnerOnly(t *testing.T) {

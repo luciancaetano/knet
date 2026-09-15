@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 )
 
 // HandleJSONRPC registers a type-safe JSON-RPC 2.0 handler on srv.
@@ -45,4 +46,66 @@ func HandleJSONRPC[Req, Resp any](
 
 		return fn(req)
 	})
+}
+
+// ConnectHooks fans a single onConnect/onDisconnect slot (ws.Config accepts
+// only one of each) out to multiple independent listeners — e.g. several
+// Rooms that each need to track connect/disconnect without knowing about
+// each other.
+//
+// Example:
+//
+//	hooks := &knet.ConnectHooks{}
+//	hooks.OnConnect(lobby.OnConnect)
+//	hooks.OnConnect(matchmaking.OnConnect)
+//	hooks.OnDisconnect(lobby.OnDisconnect)
+//
+//	cfg := ws.NewConfig(":8080", ws.DefaultRateLimitConfig(), ws.AllOrigins(),
+//	    hooks.DispatchConnect, hooks.DispatchDisconnect)
+type ConnectHooks struct {
+	mu     sync.Mutex
+	onConn []func(Client) bool
+	onDisc []func(Client, bool)
+}
+
+// OnConnect registers fn to run on every DispatchConnect call.
+func (h *ConnectHooks) OnConnect(fn func(Client) bool) {
+	h.mu.Lock()
+	h.onConn = append(h.onConn, fn)
+	h.mu.Unlock()
+}
+
+// OnDisconnect registers fn to run on every DispatchDisconnect call.
+func (h *ConnectHooks) OnDisconnect(fn func(Client, bool)) {
+	h.mu.Lock()
+	h.onDisc = append(h.onDisc, fn)
+	h.mu.Unlock()
+}
+
+// DispatchConnect runs every registered OnConnect listener in registration
+// order. The first listener to return false stops the chain and rejects the
+// client — later listeners do not run.
+func (h *ConnectHooks) DispatchConnect(c Client) bool {
+	h.mu.Lock()
+	hooks := append([]func(Client) bool(nil), h.onConn...)
+	h.mu.Unlock()
+
+	for _, fn := range hooks {
+		if !fn(c) {
+			return false
+		}
+	}
+	return true
+}
+
+// DispatchDisconnect runs every registered OnDisconnect listener in
+// registration order.
+func (h *ConnectHooks) DispatchDisconnect(c Client, voluntary bool) {
+	h.mu.Lock()
+	hooks := append(([]func(Client, bool))(nil), h.onDisc...)
+	h.mu.Unlock()
+
+	for _, fn := range hooks {
+		fn(c, voluntary)
+	}
 }

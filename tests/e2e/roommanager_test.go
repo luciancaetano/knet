@@ -63,22 +63,22 @@ func TestRoomManagerE2E(t *testing.T) {
 	store := newTestSessionStore()
 
 	// lobby is assigned below, once the real server exists (roommanager.New
-	// needs it to register handlers). The closures capture the variable, not
-	// its value, so this is safe as long as it's set before Start.
+	// needs it to register handlers). It self-registers its connect/
+	// disconnect tracking onto hooks, alongside this test's own session-store
+	// priming listener.
 	var lobby *roommanager.Manager
 
+	hooks := &knet.ConnectHooks{}
+	hooks.OnConnect(func(c knet.Client) bool {
+		// Prerequisite for resume support: prime the session store so
+		// the server's built-in grace-period extension (on involuntary
+		// disconnect) has an entry to extend. See CON-003/REQ-009.
+		store.Put(c.ID(), nil, 3*time.Second)
+		return true
+	})
+
 	cfg := ws.NewConfig(":18090", ws.DefaultRateLimitConfig(), ws.AllOrigins(),
-		func(c knet.Client) bool {
-			// Prerequisite for resume support: prime the session store so
-			// the server's built-in grace-period extension (on involuntary
-			// disconnect) has an entry to extend. See CON-003/REQ-009.
-			store.Put(c.ID(), nil, 3*time.Second)
-			return lobby.HandleConnect(c)
-		},
-		func(c knet.Client, voluntary bool) {
-			lobby.HandleDisconnect(c, voluntary)
-		},
-	)
+		hooks.DispatchConnect, hooks.DispatchDisconnect)
 	cfg.SessionStore = store
 	cfg.SessionGraceTTL = 3 * time.Second
 	cfg.OnResume = func(c knet.Client, previousRooms []string) bool {
@@ -86,10 +86,9 @@ func TestRoomManagerE2E(t *testing.T) {
 	}
 
 	server := ws.New(cfg)
-	// Manual wiring per spec §9 (CON-001): RoomManager cannot subscribe
-	// itself, so the application wires its hook methods into ServerConfig
-	// (done above via closures over `lobby`, assigned here).
-	lobby = roommanager.New(server, roommanager.Config{GraceTTL: 3 * time.Second})
+	// New wires HandleConnect/HandleDisconnect onto hooks itself; OnResume
+	// still needs manual wiring above (single-slot ServerConfig field).
+	lobby = roommanager.New(server, hooks, roommanager.Config{GraceTTL: 3 * time.Second})
 
 	ctx := context.Background()
 	if err := server.Start(ctx); err != nil {

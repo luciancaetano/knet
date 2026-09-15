@@ -9,7 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/luciancaetano/knet"
-	"github.com/luciancaetano/knet/room"
+	"github.com/luciancaetano/knet/internal/room"
 	"github.com/luciancaetano/knet/timing"
 	"github.com/luciancaetano/knet/ws"
 )

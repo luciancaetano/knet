@@ -24,6 +24,8 @@ export type RoomMemberEventType = "joined" | "left" | "disconnected" | "reconnec
 
 export interface RoomJoinRequest {
   roomId: string;
+  /** Name of a handler registered server-side via Manager.Define. Omit for legacy flat rooms. */
+  roomType?: string;
 }
 
 export interface RoomLeaveRequest {

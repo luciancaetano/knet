@@ -45,6 +45,9 @@ const (
 // RoomJoinRequest is the payload of CmdRoomJoin.
 type RoomJoinRequest struct {
 	RoomID string `json:"roomId"`
+	// RoomType names a handler registered via Manager.Define. Empty means no
+	// handler is attached to this room (legacy flat mode).
+	RoomType string `json:"roomType,omitempty"`
 }
 
 // RoomLeaveRequest is the payload of CmdRoomLeave.

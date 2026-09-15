@@ -32,7 +32,7 @@ The server is organized into 4 files, each with a single responsibility — not 
 examples/chat/
 ├── protocol.go   # the one custom command ID and its payload type
 ├── names.go      # name storage keyed by clientID
-├── server.go     # chatServer: OnConnect/OnDisconnect/OnResume and roommanager hooks
+├── server.go     # chatServer: ConnectHooks wiring, roommanager attach, OnResume
 └── main.go       # bootstrap: assembles the ws.Server, roommanager.Manager, and registers everything
 ```
 
@@ -60,7 +60,7 @@ All the chat logic lives in methods of a single type, `chatServer`, which holds 
 --8<-- "examples/chat/server.go:server-type"
 ```
 
-`roommanager.New` needs the `knet.Server` to register its handlers on, which doesn't exist until `ws.New` runs — see [2.8](#28-maingo-assembling-the-server) for why this is a two-step construction (`newChatServer` then `attachRoomManager`). `OnAfterJoin`/`OnAfterLeave` are two of `roommanager`'s [hooks](room-manager.md#hooks) — the built-in `CmdRoomMemberEvent` already tells other clients a `clientId` joined/left, so these hooks add a human-readable name on top via the one custom command this example keeps.
+`roommanager.New` needs the `knet.Server` to register its handlers on, which doesn't exist until `ws.New` runs — see [2.7](#27-maingo-assembling-the-server) for why this is a two-step construction (`newChatServer` then `attachRoomManager`). It also takes the same `*knet.ConnectHooks` passed to `ws.Config` (mandatory — `New` panics on `nil`), so it can self-register its own connect/disconnect tracking rather than relying on the app to call `HandleConnect`/`HandleDisconnect` by hand. `OnAfterJoin`/`OnAfterLeave` are two of `roommanager`'s [hooks](room-manager.md#hooks) — the built-in `CmdRoomMemberEvent` already tells other clients a `clientId` joined/left, so these hooks add a human-readable name on top via the one custom command this example keeps.
 
 ### 2.4 `OnConnect`, `OnDisconnect`, `OnResume` — wiring `roommanager` in
 
@@ -68,7 +68,7 @@ All the chat logic lives in methods of a single type, `chatServer`, which holds 
 --8<-- "examples/chat/server.go:connect"
 ```
 
-`roommanager` never touches knet core on its own — the package doc is explicit that it must be wired into `ServerConfig`'s `OnConnect`/`OnClientDisconnect`/`OnResume` hooks by hand (see [Room Manager → Setup](room-manager.md#setup)). `HandleDisconnect` already does the voluntary/involuntary distinction for us: a voluntary leave removes room membership right away (firing `OnAfterLeave`); an involuntary drop keeps membership pending for a grace period (default 30s) so `HandleResume` can restore it if the client reconnects in time — no application code needed to tell those two cases apart, `knet`'s own `voluntary bool` parameter already carries it.
+`roommanager` never touches knet core on its own, but it also can't be forgotten: `roommanager.New` requires a `*knet.ConnectHooks` (see [Room Manager → Setup](room-manager.md#setup)) and registers its own `HandleConnect`/`HandleDisconnect` on it internally, so `chatServer.onConnect`/`onDisconnect` here only need to handle app-specific concerns (logging, clearing the display name) — both listeners run off the same hooks, registered independently in `attachRoomManager`/`main.go`. `OnResume` is still a single-slot field on `ServerConfig`, so `chatServer.onResume` wires `HandleResume` into it by hand. `HandleDisconnect` already does the voluntary/involuntary distinction for us: a voluntary leave removes room membership right away (firing `OnAfterLeave`); an involuntary drop keeps membership pending for a grace period (default 30s) so `HandleResume` can restore it if the client reconnects in time — no application code needed to tell those two cases apart, `knet`'s own `voluntary bool` parameter already carries it.
 
 ### 2.5 `SetName` handler
 
@@ -92,7 +92,7 @@ A browser that loads the page over `https://` is only allowed to open `wss://` s
 
 ### 2.7 `main.go` — assembling the server
 
-`main.go` creates the `chatServer`, builds the `ws.Server` config (pointing `OnConnect`/`OnDisconnect` at the `chatServer` methods and enabling `wss://` via `ws.WithTLS`), then — only once the `ws.Server` exists — constructs the `roommanager.Manager` via `chat.attachRoomManager(server)` and sets `cfg.OnResume`. It registers the one remaining custom handler (`SetName`), starts the static server, and boots with graceful shutdown.
+`main.go` creates the `chatServer`, builds a `*knet.ConnectHooks` with the `chatServer` methods registered as listeners, points `ws.Config` at `hooks.DispatchConnect`/`hooks.DispatchDisconnect` (enabling `wss://` via `ws.WithTLS`), then — only once the `ws.Server` exists — constructs the `roommanager.Manager` via `chat.attachRoomManager(server, hooks)` (which registers its own tracking on the same `hooks`) and sets `cfg.OnResume`. It registers the one remaining custom handler (`SetName`), starts the static server, and boots with graceful shutdown.
 
 ```go
 --8<-- "examples/chat/main.go:bootstrap"

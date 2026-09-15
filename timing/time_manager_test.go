@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luciancaetano/knet/internal/room"
 	"github.com/luciancaetano/knet/observer"
-	"github.com/luciancaetano/knet/room"
 )
 
 func TestTimeManagerGlobalBroadcast(t *testing.T) {

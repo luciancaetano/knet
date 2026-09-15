@@ -33,16 +33,16 @@ import (
 //	func handleChat(client knet.Client, payload []byte) {
 //	    lobby.BroadcastExcept(ctx, client.ID(), ChatCmd, payload)
 //	}
-type Room interface {
+//
+// View is the read/broadcast facade of a Room — everything a consumer that
+// only observes or messages a room needs (e.g. [roommanager.Manager.Room],
+// [github.com/luciancaetano/knet/observer.NewSet],
+// [github.com/luciancaetano/knet/timing.TimeManager.RegisterRoom]).
+// It deliberately excludes membership mutation (Add/Remove/Close) — those
+// stay on [Room], owned by whoever manages the room's lifecycle.
+type View interface {
 	// ID returns the room's identifier as passed to [New].
 	ID() string
-
-	// Add inserts a client into the room. If a client with the same ID is
-	// already present it is replaced (idempotent on reconnect).
-	Add(client knet.Client)
-
-	// Remove evicts the client with the given ID. No-op if not present.
-	Remove(clientID string)
 
 	// Has reports whether a client with the given ID is in the room.
 	Has(clientID string) bool
@@ -62,6 +62,22 @@ type Room interface {
 	// Typically used in relay patterns where the sender should not receive
 	// their own message.
 	BroadcastExcept(ctx context.Context, excludeID string, commandID uint32, payload []byte) error
+}
+
+// Room is the full room primitive, adding membership mutation on top of
+// [View]. Reach for [View] in any signature that only needs to read or
+// broadcast — reserve Room for the code that actually owns join/leave
+// lifecycle (typically [roommanager.Manager] or a hand-rolled onConnect
+// wiring, see [New]).
+type Room interface {
+	View
+
+	// Add inserts a client into the room. If a client with the same ID is
+	// already present it is replaced (idempotent on reconnect).
+	Add(client knet.Client)
+
+	// Remove evicts the client with the given ID. No-op if not present.
+	Remove(clientID string)
 
 	// Close removes all clients from the room and closes their connections.
 	// Use this to terminate a match or lobby and disconnect every participant.

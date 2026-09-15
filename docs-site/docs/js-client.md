@@ -61,6 +61,8 @@ import { RoomManager } from "@lcaetano/knet-client";
 const rooms = new RoomManager(client);
 
 const { members } = await rooms.joinRoom("lobby-1");
+// Pass a second argument to join a server-side RoomHandler type registered
+// via Manager.Define (see Room Manager → RoomHandler): rooms.joinRoom("match-1", "match")
 rooms.on("memberJoined", (roomId, clientId) => console.log(roomId, clientId, "joined"));
 rooms.on("roomsLost", () => console.log("reconnected — rejoin any rooms you need"));
 

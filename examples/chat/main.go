@@ -30,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/luciancaetano/knet"
 	"github.com/luciancaetano/knet/ws"
 )
 
@@ -79,18 +80,25 @@ func main() {
 
 	chat := newChatServer()
 
+	// hooks fans a single onConnect/onDisconnect slot out to multiple
+	// independent listeners: chat's own logging and RoomManager's tracking
+	// (registered inside attachRoomManager) both run off the same hooks.
+	hooks := &knet.ConnectHooks{}
+	hooks.OnConnect(chat.onConnect)
+	hooks.OnDisconnect(chat.onDisconnect)
+
 	cfg := ws.NewConfig(
 		":8080",
 		ws.DefaultRateLimitConfig(),
 		ws.AllOrigins(),
-		chat.onConnect,
-		chat.onDisconnect,
+		hooks.DispatchConnect,
+		hooks.DispatchDisconnect,
 	)
 	cfg = ws.WithTLS(cfg, certFile, keyFile) // enables wss://
 	cfg.OnResume = chat.onResume             // resumes pending room membership after a reconnect
 
 	server := ws.New(cfg)
-	chat.attachRoomManager(server)
+	chat.attachRoomManager(server, hooks)
 
 	if err := server.RegisterHandler(ctx, CmdSetName, chat.handleSetName); err != nil {
 		log.Fatalf("register SetName handler: %v", err)

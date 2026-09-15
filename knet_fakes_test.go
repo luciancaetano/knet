@@ -48,3 +48,19 @@ func (s *fakeServer) BroadcastCommand(ctx context.Context, commandID uint32, pay
 	}{commandID, payload})
 	return nil
 }
+
+// fakeClient is a minimal Client implementation for testing ConnectHooks.
+type fakeClient struct {
+	id string
+}
+
+func (c *fakeClient) ID() string                           { return c.id }
+func (c *fakeClient) RemoteAddr() string                   { return "127.0.0.1:0" }
+func (c *fakeClient) Context() context.Context             { return context.Background() }
+func (c *fakeClient) IsAlive() bool                        { return true }
+func (c *fakeClient) ConnectionPayload() ConnectionPayload { return nil }
+func (c *fakeClient) Close(ctx context.Context) error      { return nil }
+func (c *fakeClient) CloseWithCode(ctx context.Context, code int, reason string) error {
+	return nil
+}
+func (c *fakeClient) Send(ctx context.Context, command uint32, payload []byte) error { return nil }

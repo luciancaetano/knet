@@ -77,3 +77,44 @@ func TestHandleJSONRPCRegisterError(t *testing.T) {
 		t.Fatalf("expected registerErr, got %v", err)
 	}
 }
+
+func TestConnectHooksDispatchConnectRunsAllUntilFalse(t *testing.T) {
+	h := &ConnectHooks{}
+	var order []string
+
+	h.OnConnect(func(c Client) bool { order = append(order, "a"); return true })
+	h.OnConnect(func(c Client) bool { order = append(order, "b"); return false })
+	h.OnConnect(func(c Client) bool { order = append(order, "c"); return true })
+
+	if got := h.DispatchConnect(&fakeClient{id: "1"}); got {
+		t.Fatal("DispatchConnect() = true, want false")
+	}
+	if want := []string{"a", "b"}; len(order) != len(want) || order[0] != want[0] || order[1] != want[1] {
+		t.Fatalf("order = %v, want %v (listener c should not run)", order, want)
+	}
+}
+
+func TestConnectHooksDispatchConnectAllTrue(t *testing.T) {
+	h := &ConnectHooks{}
+	h.OnConnect(func(c Client) bool { return true })
+	h.OnConnect(func(c Client) bool { return true })
+
+	if got := h.DispatchConnect(&fakeClient{id: "1"}); !got {
+		t.Fatal("DispatchConnect() = false, want true")
+	}
+}
+
+func TestConnectHooksDispatchDisconnectRunsAll(t *testing.T) {
+	h := &ConnectHooks{}
+	var got []string
+
+	h.OnDisconnect(func(c Client, voluntary bool) { got = append(got, c.ID()+":lobby") })
+	h.OnDisconnect(func(c Client, voluntary bool) { got = append(got, c.ID()+":matchmaking") })
+
+	h.DispatchDisconnect(&fakeClient{id: "1"}, true)
+
+	want := []string{"1:lobby", "1:matchmaking"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got = %v, want %v", got, want)
+	}
+}

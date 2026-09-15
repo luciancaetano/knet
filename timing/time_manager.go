@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/luciancaetano/knet"
+	"github.com/luciancaetano/knet/internal/room"
 	"github.com/luciancaetano/knet/observer"
-	"github.com/luciancaetano/knet/room"
 )
 
 // TickFn is called once per tick by [TimeManager].
@@ -84,7 +84,7 @@ type TimeManager struct {
 type tickEntry struct {
 	commandID uint32
 	fn        TickFn
-	room      room.Room     // nil → global broadcast via server.BroadcastCommand
+	room      room.View     // nil → global broadcast via server.BroadcastCommand
 	observers *observer.Set // if set, takes precedence over room for filtering recipients
 	subject   any           // passed to observers.Broadcast when observers is set
 }
@@ -117,7 +117,7 @@ func (t *TimeManager) Register(commandID uint32, fn TickFn) *TimeManager {
 //
 // On each tick, fn is called and the result (if non-nil) is broadcast only to
 // the clients in room. Returns the TimeManager for chaining.
-func (t *TimeManager) RegisterRoom(rm room.Room, commandID uint32, fn TickFn) *TimeManager {
+func (t *TimeManager) RegisterRoom(rm room.View, commandID uint32, fn TickFn) *TimeManager {
 	t.mu.Lock()
 	t.entries = append(t.entries, tickEntry{commandID: commandID, fn: fn, room: rm})
 	t.mu.Unlock()

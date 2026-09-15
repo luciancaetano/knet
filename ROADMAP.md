@@ -16,9 +16,7 @@
 
 ## Candidate next work
 
-- [ ] Session ID handshake: server never tells a client its assigned/resumed session ID, so neither client can resend `?session=` on reconnect — blocks true Room Manager resume-sync (REQ-020/AC-009, CON-005)
-- [ ] Client version drift: JS client at 1.2.0, no visible Unity client version file — decide if Unity should track the same MAJOR.MINOR per the CLAUDE.md versioning rule
-- [ ] Benchmark suite caps at 10k connections on one machine (per its README) — multi-machine/distributed load test is the natural ceiling to push next if scale claims need backing
+- [ ] Create a Clock Interface with, SetInterval, SetTimeout, ClearInterval, ClearTimeout, ElapsedTime, DeltaTime, CurrentTime, SetInterval and SetTimeout Returning ClockInstance with methods to pause, resume, clear, reset. and properties as elapsedtime, active, paused, its is a complete refactor of timing package and rename to clock package, the clock will be member of room as Clock() clock.Clock and clock package will export interface Clock and clock.new()
 
 ## Out of scope (not planned)
 

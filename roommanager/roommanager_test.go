@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/luciancaetano/knet"
+	"github.com/luciancaetano/knet/internal/room"
 )
 
 // --- test fakes --------------------------------------------------------------
@@ -108,11 +109,17 @@ func leave(t *testing.T, srv *fakeServer, client *fakeClient, roomID string) {
 	srv.handlers[CmdRoomLeave](client, req)
 }
 
+func joinTyped(t *testing.T, srv *fakeServer, client *fakeClient, roomID, roomType string) {
+	t.Helper()
+	req, _ := json.Marshal(RoomJoinRequest{RoomID: roomID, RoomType: roomType})
+	srv.handlers[CmdRoomJoin](client, req)
+}
+
 // --- tests -----------------------------------------------------------------
 
 func TestJoin_CreatesRoomAndAcks(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{})
+	m := New(srv, &knet.ConnectHooks{}, Config{})
 	a := newFakeClient("a")
 
 	join(t, srv, a, "room-1")
@@ -133,7 +140,7 @@ func TestJoin_CreatesRoomAndAcks(t *testing.T) {
 
 func TestJoin_BroadcastsToExistingMembers(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{})
+	m := New(srv, &knet.ConnectHooks{}, Config{})
 	_ = m
 	a := newFakeClient("a")
 	b := newFakeClient("b")
@@ -161,7 +168,7 @@ func TestJoin_BroadcastsToExistingMembers(t *testing.T) {
 
 func TestJoin_Idempotent(t *testing.T) {
 	srv := newFakeServer()
-	New(srv, Config{})
+	New(srv, &knet.ConnectHooks{}, Config{})
 	a := newFakeClient("a")
 
 	join(t, srv, a, "room-1")
@@ -177,7 +184,7 @@ func TestJoin_Idempotent(t *testing.T) {
 
 func TestLeave_NotAMember(t *testing.T) {
 	srv := newFakeServer()
-	New(srv, Config{})
+	New(srv, &knet.ConnectHooks{}, Config{})
 	a := newFakeClient("a")
 
 	leave(t, srv, a, "room-1")
@@ -195,7 +202,7 @@ func TestLeave_NotAMember(t *testing.T) {
 
 func TestLeave_RemovesAndClosesEmptyRoom(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{})
+	m := New(srv, &knet.ConnectHooks{}, Config{})
 	a := newFakeClient("a")
 	b := newFakeClient("b")
 
@@ -221,7 +228,7 @@ func TestLeave_RemovesAndClosesEmptyRoom(t *testing.T) {
 
 func TestRoomFull(t *testing.T) {
 	srv := newFakeServer()
-	New(srv, Config{MaxMembersPerRoom: 1})
+	New(srv, &knet.ConnectHooks{}, Config{MaxMembersPerRoom: 1})
 	a := newFakeClient("a")
 	b := newFakeClient("b")
 
@@ -241,7 +248,7 @@ func TestRoomFull(t *testing.T) {
 
 func TestOnBeforeJoin_Rejection(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{})
+	m := New(srv, &knet.ConnectHooks{}, Config{})
 	m.OnBeforeJoin(func(client knet.Client, roomID string) error {
 		return errDenied
 	})
@@ -271,7 +278,7 @@ func (e *testErr) Error() string { return e.msg }
 
 func TestDisconnect_Voluntary_RemovesImmediately(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{})
+	m := New(srv, &knet.ConnectHooks{}, Config{})
 	a := newFakeClient("a")
 	b := newFakeClient("b")
 	join(t, srv, a, "room-1")
@@ -295,7 +302,7 @@ func TestDisconnect_Voluntary_RemovesImmediately(t *testing.T) {
 
 func TestDisconnect_Involuntary_GraceThenResume(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{GraceTTL: 200 * time.Millisecond})
+	m := New(srv, &knet.ConnectHooks{}, Config{GraceTTL: 200 * time.Millisecond})
 	a := newFakeClient("a")
 	b := newFakeClient("b")
 	join(t, srv, a, "room-1")
@@ -346,7 +353,7 @@ func TestDisconnect_Involuntary_GraceThenResume(t *testing.T) {
 
 func TestDisconnect_Involuntary_GraceExpires(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{GraceTTL: 50 * time.Millisecond})
+	m := New(srv, &knet.ConnectHooks{}, Config{GraceTTL: 50 * time.Millisecond})
 	a := newFakeClient("a")
 	b := newFakeClient("b")
 	join(t, srv, a, "room-1")
@@ -388,7 +395,7 @@ func sendMessage(t *testing.T, srv *fakeServer, client *fakeClient, roomID, msgT
 
 func TestMessage_BroadcastsToOtherMembersOnly(t *testing.T) {
 	srv := newFakeServer()
-	New(srv, Config{})
+	New(srv, &knet.ConnectHooks{}, Config{})
 	a := newFakeClient("a")
 	b := newFakeClient("b")
 	join(t, srv, a, "room-1")
@@ -412,7 +419,7 @@ func TestMessage_BroadcastsToOtherMembersOnly(t *testing.T) {
 
 func TestMessage_NotAMember(t *testing.T) {
 	srv := newFakeServer()
-	New(srv, Config{})
+	New(srv, &knet.ConnectHooks{}, Config{})
 	a := newFakeClient("a")
 
 	sendMessage(t, srv, a, "room-1", "chat", "hi")
@@ -430,7 +437,7 @@ func TestMessage_NotAMember(t *testing.T) {
 
 func TestMessage_OnRoomMessageRejection(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{})
+	m := New(srv, &knet.ConnectHooks{}, Config{})
 	m.OnRoomMessage(func(client knet.Client, roomID, msgType, data string) error {
 		return errDenied
 	})
@@ -457,7 +464,7 @@ func TestMessage_OnRoomMessageRejection(t *testing.T) {
 
 func TestMultiRoomMembership(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{})
+	m := New(srv, &knet.ConnectHooks{}, Config{})
 	a := newFakeClient("a")
 
 	join(t, srv, a, "room-1")
@@ -471,7 +478,7 @@ func TestMultiRoomMembership(t *testing.T) {
 
 func TestHooks_JoinLeaveOrder(t *testing.T) {
 	srv := newFakeServer()
-	m := New(srv, Config{})
+	m := New(srv, &knet.ConnectHooks{}, Config{})
 
 	var events []string
 	m.OnRoomCreated(func(roomID string) { events = append(events, "created:"+roomID) })
@@ -491,5 +498,85 @@ func TestHooks_JoinLeaveOrder(t *testing.T) {
 		if events[i] != want[i] {
 			t.Fatalf("got %v, want %v", events, want)
 		}
+	}
+}
+
+// --- RoomHandler (Define) ---------------------------------------------------
+
+type fakeHandler struct {
+	events *[]string
+}
+
+func (h *fakeHandler) OnCreate(v room.View) { *h.events = append(*h.events, "create:"+v.ID()) }
+func (h *fakeHandler) OnJoin(c knet.Client) { *h.events = append(*h.events, "join:"+c.ID()) }
+func (h *fakeHandler) OnLeave(c knet.Client) {
+	*h.events = append(*h.events, "leave:"+c.ID())
+}
+func (h *fakeHandler) OnDispose() { *h.events = append(*h.events, "dispose") }
+
+func TestDefine_LifecycleCalledOncePerRoom(t *testing.T) {
+	srv := newFakeServer()
+	m := New(srv, &knet.ConnectHooks{}, Config{})
+
+	var events []string
+	m.Define("match", func() RoomHandler { return &fakeHandler{events: &events} })
+
+	a := newFakeClient("a")
+	b := newFakeClient("b")
+
+	joinTyped(t, srv, a, "match-1", "match")
+	joinTyped(t, srv, b, "match-1", "match")
+	leave(t, srv, a, "match-1")
+	leave(t, srv, b, "match-1")
+
+	want := []string{"create:match-1", "join:a", "join:b", "leave:a", "leave:b", "dispose"}
+	if len(events) != len(want) {
+		t.Fatalf("got %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("got %v, want %v", events, want)
+		}
+	}
+}
+
+func TestDefine_UntypedRoomHasNoHandler(t *testing.T) {
+	srv := newFakeServer()
+	m := New(srv, &knet.ConnectHooks{}, Config{})
+
+	called := false
+	m.Define("match", func() RoomHandler {
+		called = true
+		return &fakeHandler{events: &[]string{}}
+	})
+
+	a := newFakeClient("a")
+	join(t, srv, a, "room-1") // no RoomType
+
+	if called {
+		t.Fatal("factory should not run for a join without RoomType")
+	}
+}
+
+func TestDefine_CoexistsWithGlobalHooks(t *testing.T) {
+	srv := newFakeServer()
+	m := New(srv, &knet.ConnectHooks{}, Config{})
+
+	var globalEvents []string
+	m.OnAfterJoin(func(client knet.Client, roomID string) {
+		globalEvents = append(globalEvents, "global:"+client.ID())
+	})
+
+	var handlerEvents []string
+	m.Define("match", func() RoomHandler { return &fakeHandler{events: &handlerEvents} })
+
+	a := newFakeClient("a")
+	joinTyped(t, srv, a, "match-1", "match")
+
+	if len(globalEvents) != 1 || globalEvents[0] != "global:a" {
+		t.Fatalf("expected global hook to still fire, got %v", globalEvents)
+	}
+	if len(handlerEvents) != 2 || handlerEvents[0] != "create:match-1" || handlerEvents[1] != "join:a" {
+		t.Fatalf("expected handler lifecycle to also fire, got %v", handlerEvents)
 	}
 }

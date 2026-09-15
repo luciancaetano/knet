@@ -1,14 +1,16 @@
-// Package roommanager is an optional, opt-in layer on top of knet's
-// room.Room primitive. It provides a named/discoverable multi-room registry,
-// reserved join/leave commands, automatic create-on-first-join /
-// close-on-empty room lifecycle, and grace-period disconnect/reconnect
-// handling for room membership.
+// Package roommanager is an optional, opt-in layer on top of knet's internal
+// room primitive — rooms are never created directly by application code,
+// only ever by a Manager (create-on-first-join / close-on-empty), so every
+// room's lifecycle always goes through this package's hooks. It provides a
+// named/discoverable multi-room registry, reserved join/leave commands, and
+// grace-period disconnect/reconnect handling for room membership.
 //
-// RoomManager never modifies knet core: it is constructed explicitly by the
-// application and wired into ServerConfig's OnConnect/OnClientDisconnect/
-// OnResume hooks by hand (see HandleConnect, HandleDisconnect, HandleResume)
-// because those hooks hold a single function reference each. An application
-// that never calls New has zero behavior change.
+// RoomManager never modifies knet core: New takes the [knet.ConnectHooks]
+// the application wired into ws.Config and registers its own connect/
+// disconnect handling there, so an application cannot forget to wire it (and
+// can still add its own OnConnect/OnDisconnect listeners on the same hooks
+// alongside it). OnResume is still a single-slot ServerConfig field — wire
+// HandleResume into it by hand (see package example).
 package roommanager
 
 import (
@@ -18,7 +20,7 @@ import (
 	"time"
 
 	"github.com/luciancaetano/knet"
-	"github.com/luciancaetano/knet/room"
+	"github.com/luciancaetano/knet/internal/room"
 )
 
 // defaultGraceTTL matches knet's own default SessionGraceTTL
@@ -65,13 +67,25 @@ type Manager struct {
 	onRoomCreated func(roomID string)
 	onRoomClosed  func(roomID string)
 	onRoomMessage func(client knet.Client, roomID, msgType, data string) error
+
+	handlerMu sync.RWMutex
+	factories map[string]RoomHandlerFactory // roomType -> factory
+	handlers  map[string]RoomHandler        // roomID -> live instance
 }
 
-// New creates a Manager attached to server and registers its reserved
-// join/leave command handlers. It does not touch server's connect/disconnect
-// hooks — wire HandleConnect/HandleDisconnect/HandleResume into your own
-// ServerConfig callbacks explicitly (see package doc and spec §9).
-func New(server knet.Server, cfg Config) *Manager {
+// New creates a Manager attached to server, registers its reserved
+// join/leave command handlers, and wires its connect/disconnect handling
+// onto hooks — the same [knet.ConnectHooks] passed to ws.Config, so every
+// application using roommanager gets connect/disconnect tracking
+// automatically instead of having to remember to call HandleConnect/
+// HandleDisconnect by hand. hooks must not be nil.
+//
+// HandleResume still needs manual wiring into ServerConfig.OnResume — that
+// hook has no multi-listener fan-out (see package doc).
+func New(server knet.Server, hooks *knet.ConnectHooks, cfg Config) *Manager {
+	if hooks == nil {
+		panic("roommanager.New: hooks must not be nil")
+	}
 	if cfg.GraceTTL <= 0 {
 		cfg.GraceTTL = defaultGraceTTL
 	}
@@ -82,7 +96,12 @@ func New(server knet.Server, cfg Config) *Manager {
 		rooms:      make(map[string]room.Room),
 		membership: make(map[string]map[string]bool),
 		pending:    make(map[string]*pendingMember),
+		factories:  make(map[string]RoomHandlerFactory),
+		handlers:   make(map[string]RoomHandler),
 	}
+
+	hooks.OnConnect(m.HandleConnect)
+	hooks.OnDisconnect(m.HandleDisconnect)
 
 	ctx := context.Background()
 	server.RegisterHandler(ctx, CmdRoomJoin, m.handleJoin)       //nolint:errcheck
@@ -90,6 +109,57 @@ func New(server knet.Server, cfg Config) *Manager {
 	server.RegisterHandler(ctx, CmdRoomMessage, m.handleMessage) //nolint:errcheck
 
 	return m
+}
+
+// Server returns the [knet.Server] this Manager is attached to.
+func (m *Manager) Server() knet.Server {
+	return m.server
+}
+
+// GetClient returns the connected client with the given ID, if it is a
+// member of any room this Manager tracks.
+func (m *Manager) GetClient(clientID string) (knet.Client, bool) {
+	m.mu.Lock()
+	roomIDs := setToSlice(m.membership[clientID])
+	rooms := make([]room.Room, 0, len(roomIDs))
+	for _, roomID := range roomIDs {
+		if rm, ok := m.rooms[roomID]; ok {
+			rooms = append(rooms, rm)
+		}
+	}
+	m.mu.Unlock()
+
+	for _, rm := range rooms {
+		for _, c := range rm.Clients() {
+			if c.ID() == clientID {
+				return c, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// GetClients returns every distinct client currently a member of a room
+// tracked by this Manager.
+func (m *Manager) GetClients() []knet.Client {
+	m.mu.Lock()
+	rooms := make([]room.Room, 0, len(m.rooms))
+	for _, rm := range m.rooms {
+		rooms = append(rooms, rm)
+	}
+	m.mu.Unlock()
+
+	seen := make(map[string]bool)
+	out := make([]knet.Client, 0)
+	for _, rm := range rooms {
+		for _, c := range rm.Clients() {
+			if !seen[c.ID()] {
+				seen[c.ID()] = true
+				out = append(out, c)
+			}
+		}
+	}
+	return out
 }
 
 // --- Connection lifecycle wiring (CON-001) ---------------------------------
@@ -205,8 +275,10 @@ func (m *Manager) expireGrace(clientID string) {
 
 // --- Query API (REQ-013) ----------------------------------------------------
 
-// Room returns the room with the given ID, if it currently exists.
-func (m *Manager) Room(roomID string) (room.Room, bool) {
+// Room returns the room with the given ID, if it currently exists. The
+// result is a [room.View] — read/broadcast only — since membership
+// (Add/Remove/Close) is owned by the Manager itself via join/leave.
+func (m *Manager) Room(roomID string) (room.View, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rm, ok := m.rooms[roomID]
@@ -309,6 +381,29 @@ func (m *Manager) OnRoomMessage(fn func(client knet.Client, roomID, msgType, dat
 	m.hookMu.Unlock()
 }
 
+// Define registers factory under roomType. When a client joins with a
+// matching RoomJoinRequest.RoomType, the Manager creates one RoomHandler
+// instance via factory (on first join of that room) and drives its lifecycle
+// methods alongside the existing global hooks (OnAfterJoin etc. still fire
+// too, for every room regardless of type).
+func (m *Manager) Define(roomType string, factory RoomHandlerFactory) {
+	m.handlerMu.Lock()
+	m.factories[roomType] = factory
+	m.handlerMu.Unlock()
+}
+
+func (m *Manager) getFactory(roomType string) RoomHandlerFactory {
+	m.handlerMu.RLock()
+	defer m.handlerMu.RUnlock()
+	return m.factories[roomType]
+}
+
+func (m *Manager) getHandler(roomID string) RoomHandler {
+	m.handlerMu.RLock()
+	defer m.handlerMu.RUnlock()
+	return m.handlers[roomID]
+}
+
 // --- Command handlers --------------------------------------------------------
 
 func (m *Manager) handleJoin(client knet.Client, payload []byte) {
@@ -361,6 +456,19 @@ func (m *Manager) handleJoin(client knet.Client, payload []byte) {
 	members := memberIDs(rm)
 	m.mu.Unlock()
 
+	var handler RoomHandler
+	if !existed && req.RoomType != "" {
+		if factory := m.getFactory(req.RoomType); factory != nil {
+			handler = factory()
+			m.handlerMu.Lock()
+			m.handlers[req.RoomID] = handler
+			m.handlerMu.Unlock()
+			handler.OnCreate(rm)
+		}
+	} else {
+		handler = m.getHandler(req.RoomID)
+	}
+
 	if !existed {
 		if fn := m.getRoomCreated(); fn != nil {
 			fn(req.RoomID)
@@ -368,6 +476,9 @@ func (m *Manager) handleJoin(client knet.Client, payload []byte) {
 	}
 	if fn := m.getAfterJoin(); fn != nil {
 		fn(client, req.RoomID)
+	}
+	if handler != nil {
+		handler.OnJoin(client)
 	}
 
 	m.broadcastMemberEvent(req.RoomID, clientID, MemberJoined)
@@ -472,9 +583,14 @@ func (m *Manager) finalizeLeave(clientID, roomID string) {
 	}
 	m.mu.Unlock()
 
+	handler := m.getHandler(roomID)
+
 	if hadClient {
 		if fn := m.getAfterLeave(); fn != nil {
 			fn(client, roomID)
+		}
+		if handler != nil {
+			handler.OnLeave(client)
 		}
 	}
 
@@ -484,6 +600,12 @@ func (m *Manager) finalizeLeave(clientID, roomID string) {
 		rm.Close(context.Background())
 		if fn := m.getRoomClosed(); fn != nil {
 			fn(roomID)
+		}
+		if handler != nil {
+			handler.OnDispose()
+			m.handlerMu.Lock()
+			delete(m.handlers, roomID)
+			m.handlerMu.Unlock()
 		}
 	}
 }

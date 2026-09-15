@@ -92,7 +92,7 @@ export class RoomManager {
     return Array.from(this.rooms);
   }
 
-  joinRoom(roomId: string): Promise<RoomJoinResult> {
+  joinRoom(roomId: string, roomType?: string): Promise<RoomJoinResult> {
     if (this.pendingJoins.has(roomId)) {
       return Promise.reject(new Error(`join already in flight for room ${roomId}`));
     }
@@ -103,7 +103,7 @@ export class RoomManager {
       }, this.timeoutMs);
       this.pendingJoins.set(roomId, { resolve, reject, timer });
     });
-    this.client.sendJson(RoomCommands.Join, { roomId }).catch((err) => {
+    this.client.sendJson(RoomCommands.Join, roomType ? { roomId, roomType } : { roomId }).catch((err) => {
       const pending = this.pendingJoins.get(roomId);
       if (!pending) return;
       this.pendingJoins.delete(roomId);

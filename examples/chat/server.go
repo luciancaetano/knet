@@ -24,11 +24,12 @@ func newChatServer() *chatServer {
 }
 
 // attachRoomManager wires the server up once it exists — RoomManager needs a
-// knet.Server to register its handlers on, and that server's config needs
-// s.onConnect/s.onDisconnect bound first (see main.go), so this runs after
-// ws.New.
-func (s *chatServer) attachRoomManager(server knet.Server) {
-	s.roomManager = roommanager.New(server, roommanager.Config{})
+// knet.Server to register its handlers on, and hooks (the same
+// knet.ConnectHooks passed to ws.Config, see main.go) so New can register its
+// own connect/disconnect tracking without the app calling HandleConnect/
+// HandleDisconnect by hand.
+func (s *chatServer) attachRoomManager(server knet.Server, hooks *knet.ConnectHooks) {
+	s.roomManager = roommanager.New(server, hooks, roommanager.Config{})
 
 	// Broadcast a presence message with the joiner's name once they've
 	// actually joined the room — the built-in CmdRoomMemberEvent already
@@ -44,21 +45,22 @@ func (s *chatServer) attachRoomManager(server knet.Server) {
 // --8<-- [end:server-type]
 
 // --8<-- [start:connect]
-// onConnect just accepts the connection and lets RoomManager track it.
+// onConnect just logs — RoomManager tracks connect/disconnect itself via the
+// same ConnectHooks (see main.go), registered once in attachRoomManager.
 // The client joins the "lobby" room itself via CmdRoomJoin once connected
 // (see the web client) — RoomManager doesn't auto-join anyone.
 func (s *chatServer) onConnect(client knet.Client) bool {
 	log.Printf("client connected: id=%s addr=%s", client.ID(), client.RemoteAddr())
-	return s.roomManager.HandleConnect(client)
+	return true
 }
 
-// onDisconnect relays to RoomManager, which handles the voluntary/involuntary
+// onDisconnect logs and clears the display name; RoomManager's own
+// HandleDisconnect (wired via ConnectHooks) handles the voluntary/involuntary
 // distinction itself: a voluntary leave removes room membership immediately
 // (OnAfterLeave fires, see newChatServer); an involuntary drop keeps
 // membership pending for a grace period so a reconnect can resume it.
 func (s *chatServer) onDisconnect(client knet.Client, voluntary bool) {
 	log.Printf("client disconnected: id=%s addr=%s voluntary=%v", client.ID(), client.RemoteAddr(), voluntary)
-	s.roomManager.HandleDisconnect(client, voluntary)
 	s.names.delete(client.ID())
 }
 

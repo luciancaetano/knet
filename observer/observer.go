@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/luciancaetano/knet"
-	"github.com/luciancaetano/knet/room"
+	"github.com/luciancaetano/knet/internal/room"
 )
 
 // Condition decides, for one client, whether it should receive updates
@@ -28,22 +28,22 @@ func (f ConditionFunc) ShouldObserve(client knet.Client, subject any) bool {
 	return f(client, subject)
 }
 
-// Set filters a [room.Room]'s clients through one or more [Condition]s
+// Set filters a [room.View]'s clients through one or more [Condition]s
 // before broadcasting, so updates about a subject only reach clients that
 // currently have interest in it.
 //
 // All conditions must pass (logical AND). To express OR, wrap the conditions
 // in a single custom [Condition].
 //
-// Observer/interest management is entirely opt-in: use [room.Room.Broadcast]
+// Observer/interest management is entirely opt-in: use [room.View.Broadcast]
 // directly when every client in a room should see every update.
 type Set struct {
-	room       room.Room
+	room       room.View
 	conditions []Condition
 }
 
 // NewSet creates a Set scoped to rm, filtered by every given condition.
-func NewSet(rm room.Room, conditions ...Condition) *Set {
+func NewSet(rm room.View, conditions ...Condition) *Set {
 	return &Set{room: rm, conditions: conditions}
 }
 

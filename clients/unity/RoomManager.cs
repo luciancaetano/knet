@@ -90,8 +90,9 @@ namespace Knet
         /// <summary>Room IDs this client currently believes it's a member of.</summary>
         public IReadOnlyList<string> CurrentRooms => _rooms;
 
-        /// <summary>Requests to join <paramref name="roomId"/>; resolves with the ack's member list.</summary>
-        public Task<RoomJoinResult> JoinRoomAsync(string roomId)
+        /// <summary>Requests to join <paramref name="roomId"/>, optionally as <paramref name="roomType"/>
+        /// (a handler registered server-side via Manager.Define); resolves with the ack's member list.</summary>
+        public Task<RoomJoinResult> JoinRoomAsync(string roomId, string roomType = null)
         {
             TaskCompletionSource<RoomJoinResult> tcs;
             lock (_pendingLock)
@@ -101,7 +102,7 @@ namespace Knet
                 tcs = new TaskCompletionSource<RoomJoinResult>(TaskCreationOptions.RunContinuationsAsynchronously);
                 _pendingJoins[roomId] = tcs;
             }
-            return SendAndAwait(RoomCommands.Join, new RoomJoinRequest { roomId = roomId }, tcs, _pendingJoins, roomId, "join");
+            return SendAndAwait(RoomCommands.Join, new RoomJoinRequest { roomId = roomId, roomType = roomType }, tcs, _pendingJoins, roomId, "join");
         }
 
         /// <summary>Requests to leave <paramref name="roomId"/>; resolves once acknowledged.</summary>

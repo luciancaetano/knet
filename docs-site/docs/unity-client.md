@@ -162,6 +162,8 @@ rooms.OnRoomsLost += () => Debug.Log("reconnected — rejoin any rooms you need"
 
 await client.ConnectAsync();
 var result = await rooms.JoinRoomAsync("lobby-1");
+// Pass roomType to join a server-side RoomHandler type registered via
+// Manager.Define (see Room Manager → RoomHandler): JoinRoomAsync("match-1", "match")
 await rooms.LeaveRoomAsync("lobby-1");
 ```
 
