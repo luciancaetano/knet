@@ -258,20 +258,31 @@ func (t *TimeManager) dispatch(ctx context.Context, tick uint64) {
 		h(tick)
 	}
 
+	// fn(tick) runs sequentially per entry (handlers may share game-state and
+	// aren't expected to be concurrency-safe with each other), but each
+	// entry's broadcast fan-out — the part that scales with connection count —
+	// runs in its own goroutine so one slow/large-room entry doesn't delay the
+	// others or eat into the next tick's budget.
+	var wg sync.WaitGroup
 	for _, e := range entries {
 		payload := e.fn(tick)
 		if payload == nil {
 			continue
 		}
-		switch {
-		case e.observers != nil:
-			e.observers.Broadcast(ctx, e.subject, e.commandID, payload) //nolint:errcheck
-		case e.room != nil:
-			e.room.Broadcast(ctx, e.commandID, payload) //nolint:errcheck
-		default:
-			t.server.BroadcastCommand(ctx, e.commandID, payload) //nolint:errcheck
-		}
+		wg.Add(1)
+		go func(e tickEntry, payload []byte) {
+			defer wg.Done()
+			switch {
+			case e.observers != nil:
+				e.observers.Broadcast(ctx, e.subject, e.commandID, payload) //nolint:errcheck
+			case e.room != nil:
+				e.room.Broadcast(ctx, e.commandID, payload) //nolint:errcheck
+			default:
+				t.server.BroadcastCommand(ctx, e.commandID, payload) //nolint:errcheck
+			}
+		}(e, payload)
 	}
+	wg.Wait()
 
 	for _, h := range postHooks {
 		h(tick)
