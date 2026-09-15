@@ -2,6 +2,10 @@
   "name": "@lcaetano/knet-client",
   "version": "1.2.0",
   "description": "Browser WebSocket client for the knet protocol",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/luciancaetano/knet"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
