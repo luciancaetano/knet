@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/luciancaetano/knet"
+	"github.com/luciancaetano/knet/clock"
 	"github.com/luciancaetano/knet/internal/room"
 	"github.com/luciancaetano/knet/timing"
 	"github.com/luciancaetano/knet/ws"
@@ -38,7 +39,7 @@ func MeasureTickerJitter(withRoom bool, n int, interval time.Duration) (JitterRe
 
 	var rm room.Room
 	if withRoom {
-		rm = room.New("jitter-bench")
+		rm = room.New("jitter-bench", interval)
 	}
 
 	metrics := newCollectorMetrics()
@@ -73,7 +74,7 @@ func MeasureTickerJitter(withRoom bool, n int, interval time.Duration) (JitterRe
 
 	var mu sync.Mutex
 	var fireTimes []time.Time
-	tm.OnPreTick(func(uint64) {
+	tm.OnPreTick(func(clock.Tick) {
 		mu.Lock()
 		fireTimes = append(fireTimes, time.Now())
 		mu.Unlock()
@@ -81,9 +82,9 @@ func MeasureTickerJitter(withRoom bool, n int, interval time.Duration) (JitterRe
 
 	payload := []byte("jitter")
 	if rm != nil {
-		tm.RegisterRoom(rm, 2, func(uint64) []byte { return payload })
+		tm.RegisterRoom(rm, 2, func(clock.Tick) []byte { return payload })
 	} else {
-		tm.Register(2, func(uint64) []byte { return payload })
+		tm.Register(2, func(clock.Tick) []byte { return payload })
 	}
 
 	go func() { _ = server.Start(ctx) }()

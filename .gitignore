@@ -38,3 +38,4 @@ clients/js/.npmrc
 clients/js/node_modules/
 *Zone.Identifier
 .claude/worktrees/
+examples/chat/chat

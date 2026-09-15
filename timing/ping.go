@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/luciancaetano/knet"
+	"github.com/luciancaetano/knet/clock"
 )
 
 // PingCommandID is the reserved command ID used by [TimeManager]'s
@@ -40,7 +41,8 @@ func (t *TimeManager) EnablePing(ctx context.Context, server knet.Server, interv
 	}
 	t.rttMu.Unlock()
 
-	t.OnPostTick(func(tick uint64) {
+	t.OnPostTick(func(tk clock.Tick) {
+		tick := tk.CurrentTick()
 		if tick%intervalTicks != 0 {
 			return
 		}

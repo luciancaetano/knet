@@ -1,10 +1,11 @@
 // Command chat is a runnable example: a multi-user chat server built with
-// knet's room package.
+// knet's roommanager package.
 //
-// It demonstrates users joining/leaving, broadcasting chat messages,
-// presence notifications, and telling voluntary disconnects (user clicked
-// "Leave") apart from involuntary ones (network drop / timeout) using the
-// OnDisconnect callback's `voluntary bool` argument.
+// It demonstrates users joining/leaving a room, broadcasting chat messages,
+// presence notifications via a Colyseus-style RoomHandler (see lobbyRoom in
+// server.go), and telling voluntary disconnects (user clicked "Leave") apart
+// from involuntary ones (network drop / timeout) using the OnDisconnect
+// callback's `voluntary bool` argument.
 //
 // Run:
 //
@@ -31,6 +32,7 @@ import (
 	"time"
 
 	"github.com/luciancaetano/knet"
+	"github.com/luciancaetano/knet/roommanager"
 	"github.com/luciancaetano/knet/ws"
 )
 
@@ -81,11 +83,23 @@ func main() {
 	chat := newChatServer()
 
 	// hooks fans a single onConnect/onDisconnect slot out to multiple
-	// independent listeners: chat's own logging and RoomManager's tracking
-	// (registered inside attachRoomManager) both run off the same hooks.
+	// independent listeners: our own logging below, and RoomManager's own
+	// connect/disconnect tracking (registered by roommanager.New further
+	// down) — both run off the same *knet.ConnectHooks.
 	hooks := &knet.ConnectHooks{}
-	hooks.OnConnect(chat.onConnect)
-	hooks.OnDisconnect(chat.onDisconnect)
+	hooks.OnConnect(func(client knet.Client) bool {
+		log.Printf("client connected: id=%s addr=%s", client.ID(), client.RemoteAddr())
+		return true
+	})
+	hooks.OnDisconnect(func(client knet.Client, voluntary bool) {
+		// roommanager's own listener on this same hook (see below) already
+		// decides what happens to room membership from voluntary — a
+		// voluntary leave removes it now, an involuntary drop keeps it
+		// pending for a grace period so a reconnect can resume it. We only
+		// need to clear the name we don't need anymore.
+		log.Printf("client disconnected: id=%s addr=%s voluntary=%v", client.ID(), client.RemoteAddr(), voluntary)
+		chat.names.delete(client.ID())
+	})
 
 	cfg := ws.NewConfig(
 		":8080",
@@ -95,10 +109,30 @@ func main() {
 		hooks.DispatchDisconnect,
 	)
 	cfg = ws.WithTLS(cfg, certFile, keyFile) // enables wss://
-	cfg.OnResume = chat.onResume             // resumes pending room membership after a reconnect
 
 	server := ws.New(cfg)
-	chat.attachRoomManager(server, hooks)
+
+	// roommanager.New needs the *ws.Server to register its handlers on
+	// (hence why it's built here, not in newChatServer) and the same hooks
+	// above, so it can self-register HandleConnect/HandleDisconnect instead
+	// of the app calling them by hand.
+	chat.roomManager = roommanager.New(server, hooks, roommanager.Config{})
+
+	// Define registers "lobby" as a room type: the first client to join a
+	// room with roomType "lobby" (see index.html's joinRoom call) creates
+	// one lobbyRoom instance, which then owns that room's presence
+	// broadcasts via its own OnJoin/OnLeave — see server.go.
+	chat.roomManager.Define("lobby", func() roommanager.RoomHandler {
+		return &lobbyRoom{names: chat.names}
+	})
+
+	// OnResume is a single-slot field on ServerConfig (not a ConnectHooks
+	// listener): it fires on a reconnect within the grace period, letting a
+	// client automatically resume its previous room membership instead of
+	// being treated as brand new.
+	cfg.OnResume = func(client knet.Client, previousRooms []string) bool {
+		return chat.roomManager.HandleResume(client, previousRooms)
+	}
 
 	if err := server.RegisterHandler(ctx, CmdSetName, chat.handleSetName); err != nil {
 		log.Fatalf("register SetName handler: %v", err)

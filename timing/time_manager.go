@@ -8,22 +8,23 @@ import (
 	"time"
 
 	"github.com/luciancaetano/knet"
+	"github.com/luciancaetano/knet/clock"
 	"github.com/luciancaetano/knet/internal/room"
 	"github.com/luciancaetano/knet/observer"
 )
 
 // TickFn is called once per tick by [TimeManager].
 //
-// tick is a monotonically increasing counter starting at zero on the first
-// tick. Returning nil skips the broadcast for that tick, which is useful for
-// delta-update strategies where nothing has changed since the last tick.
-type TickFn func(tick uint64) []byte
+// t exposes tick-relative timing (elapsed time, delta, wall-clock time, tick
+// counter). Returning nil skips the broadcast for that tick, which is useful
+// for delta-update strategies where nothing has changed since the last tick.
+type TickFn func(t clock.Tick) []byte
 
 // TickHookFn is called once per tick by [TimeManager.OnPreTick] or
 // [TimeManager.OnPostTick] handlers. Unlike [TickFn] it has no return value —
 // it's for side effects (e.g. syncing external simulation state), not
 // broadcasting.
-type TickHookFn func(tick uint64)
+type TickHookFn func(t clock.Tick)
 
 // TimeManager drives fixed-rate state broadcasts and tracks tick-relative
 // timing for game loops (tick lifecycle, uptime, tick↔duration conversions,
@@ -43,14 +44,14 @@ type TickHookFn func(tick uint64)
 //	tm := timing.New(server, 50*time.Millisecond)
 //
 //	// Global broadcast: send world state to every connected client
-//	tm.Register(WorldStateCmd, func(tick uint64) []byte {
+//	tm.Register(WorldStateCmd, func(t clock.Tick) []byte {
 //	    return world.Snapshot()
 //	})
 //
 //	// Room-scoped broadcast: send positions only to players in the match
-//	tm.RegisterRoom(matchRoom, PlayerPosCmd, func(tick uint64) []byte {
+//	tm.RegisterRoom(matchRoom, PlayerPosCmd, func(t clock.Tick) []byte {
 //	    // Send a full snapshot every second (20 ticks), deltas in between
-//	    if tick%20 == 0 {
+//	    if t.CurrentTick()%20 == 0 {
 //	        return match.FullPositions()
 //	    }
 //	    return match.DeltaPositions()
@@ -224,12 +225,12 @@ func (t *TimeManager) run(ctx context.Context) {
 	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
 
-	var tick uint64
+	var count uint64
 	for {
 		select {
 		case <-ticker.C:
-			t.dispatch(ctx, tick)
-			tick++
+			t.dispatch(ctx, count)
+			count++
 		case <-ctx.Done():
 			return
 		case <-t.stopCh:
@@ -242,8 +243,14 @@ func (t *TimeManager) run(ctx context.Context) {
 // non-nil payloads, then runs post-tick hooks. A snapshot of entries/hooks is
 // taken under the lock so that Register*/OnPreTick/OnPostTick calls from
 // other goroutines cannot race with the dispatch loop.
-func (t *TimeManager) dispatch(ctx context.Context, tick uint64) {
-	t.currentTick.Store(tick)
+func (t *TimeManager) dispatch(ctx context.Context, count uint64) {
+	t.currentTick.Store(count)
+	tk := clockTick{
+		elapsed: t.Uptime(),
+		delta:   t.interval,
+		current: time.Now(),
+		count:   count,
+	}
 
 	t.mu.Lock()
 	entries := make([]tickEntry, len(t.entries))
@@ -255,7 +262,7 @@ func (t *TimeManager) dispatch(ctx context.Context, tick uint64) {
 	t.mu.Unlock()
 
 	for _, h := range preHooks {
-		h(tick)
+		h(tk)
 	}
 
 	// fn(tick) runs sequentially per entry (handlers may share game-state and
@@ -265,7 +272,7 @@ func (t *TimeManager) dispatch(ctx context.Context, tick uint64) {
 	// others or eat into the next tick's budget.
 	var wg sync.WaitGroup
 	for _, e := range entries {
-		payload := e.fn(tick)
+		payload := e.fn(tk)
 		if payload == nil {
 			continue
 		}
@@ -285,6 +292,21 @@ func (t *TimeManager) dispatch(ctx context.Context, tick uint64) {
 	wg.Wait()
 
 	for _, h := range postHooks {
-		h(tick)
+		h(tk)
 	}
 }
+
+// clockTick is TimeManager's own [clock.Tick] implementation — TimeManager
+// does not embed a [clock.Clock], it just reuses the Tick shape for callback
+// typing so TickFn/TickHookFn share a vocabulary with the clock package.
+type clockTick struct {
+	elapsed time.Duration
+	delta   time.Duration
+	current time.Time
+	count   uint64
+}
+
+func (t clockTick) ElapsedTime() time.Duration { return t.elapsed }
+func (t clockTick) DeltaTime() time.Duration   { return t.delta }
+func (t clockTick) CurrentTime() time.Time     { return t.current }
+func (t clockTick) CurrentTick() uint64        { return t.count }

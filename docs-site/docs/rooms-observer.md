@@ -43,6 +43,7 @@ See [Room Manager](room-manager.md) for the full setup (join/leave commands, hoo
 | `Size() int` | current member count |
 | `Broadcast(ctx, commandID, payload) error` | send to everyone in the room |
 | `BroadcastExcept(ctx, excludeID, commandID, payload) error` | send to everyone but one client |
+| `Clock() clock.Clock` | this room's own `setInterval`/`setTimeout`-style scheduler, stopped until `Start()` — see [Clock](syncvar-timing.md#clock-setintervalsettimeout-for-game-loops) |
 
 ## Observer (interest management)
 

@@ -87,6 +87,7 @@ const CmdSetName = 0x0001;
 const CmdUserJoined = 0x0003;
 const CmdUserLeft = 0x0004;
 const ROOM_ID = "lobby";
+const ROOM_TYPE = "lobby"; // matches roomManager.Define("lobby", ...) on the server
 // --8<-- [end:commands]
 
 // --8<-- [start:close-reason]
@@ -149,7 +150,7 @@ client.on("connected", async () => {
   // RoomManager clears currentRooms on every reconnect (see "Reconnection in
   // practice" in the docs), so both need to happen again here.
   client.sendString(CmdSetName, nameEl.value || "guest");
-  await rooms.joinRoom(ROOM_ID);
+  await rooms.joinRoom(ROOM_ID, ROOM_TYPE);
 });
 
 client.on("disconnected", (code, reason) => {

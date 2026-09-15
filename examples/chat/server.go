@@ -6,14 +6,15 @@ import (
 	"log"
 
 	"github.com/luciancaetano/knet"
+	"github.com/luciancaetano/knet/internal/room"
 	"github.com/luciancaetano/knet/roommanager"
 )
 
 // --8<-- [start:server-type]
-// chatServer holds the shared state for the example: the RoomManager (room
-// lifecycle, join/leave, reconnect grace periods — all built in) and the
-// display name chosen by each connected client, which RoomManager has no
-// concept of (it only knows clientIDs).
+// chatServer holds state that isn't scoped to a single room: the RoomManager
+// itself, and the display name chosen by each connected client (RoomManager
+// only knows clientIDs). roomManager starts nil and is set once, in main()
+// (2.8) — it needs the *ws.Server, which doesn't exist yet here.
 type chatServer struct {
 	roomManager *roommanager.Manager
 	names       *nameStore
@@ -23,54 +24,7 @@ func newChatServer() *chatServer {
 	return &chatServer{names: newNameStore()}
 }
 
-// attachRoomManager wires the server up once it exists — RoomManager needs a
-// knet.Server to register its handlers on, and hooks (the same
-// knet.ConnectHooks passed to ws.Config, see main.go) so New can register its
-// own connect/disconnect tracking without the app calling HandleConnect/
-// HandleDisconnect by hand.
-func (s *chatServer) attachRoomManager(server knet.Server, hooks *knet.ConnectHooks) {
-	s.roomManager = roommanager.New(server, hooks, roommanager.Config{})
-
-	// Broadcast a presence message with the joiner's name once they've
-	// actually joined the room — the built-in CmdRoomMemberEvent already
-	// tells other members a clientID joined/left, this adds the name on top.
-	s.roomManager.OnAfterJoin(func(client knet.Client, roomID string) {
-		s.broadcastPresence(context.Background(), roomID, CmdUserJoined, s.names.get(client.ID()))
-	})
-	s.roomManager.OnAfterLeave(func(client knet.Client, roomID string) {
-		s.broadcastPresence(context.Background(), roomID, CmdUserLeft, s.names.get(client.ID()))
-	})
-}
-
 // --8<-- [end:server-type]
-
-// --8<-- [start:connect]
-// onConnect just logs — RoomManager tracks connect/disconnect itself via the
-// same ConnectHooks (see main.go), registered once in attachRoomManager.
-// The client joins the "lobby" room itself via CmdRoomJoin once connected
-// (see the web client) — RoomManager doesn't auto-join anyone.
-func (s *chatServer) onConnect(client knet.Client) bool {
-	log.Printf("client connected: id=%s addr=%s", client.ID(), client.RemoteAddr())
-	return true
-}
-
-// onDisconnect logs and clears the display name; RoomManager's own
-// HandleDisconnect (wired via ConnectHooks) handles the voluntary/involuntary
-// distinction itself: a voluntary leave removes room membership immediately
-// (OnAfterLeave fires, see newChatServer); an involuntary drop keeps
-// membership pending for a grace period so a reconnect can resume it.
-func (s *chatServer) onDisconnect(client knet.Client, voluntary bool) {
-	log.Printf("client disconnected: id=%s addr=%s voluntary=%v", client.ID(), client.RemoteAddr(), voluntary)
-	s.names.delete(client.ID())
-}
-
-// onResume lets a reconnecting client automatically resume any pending room
-// membership from its grace period, instead of being treated as brand new.
-func (s *chatServer) onResume(client knet.Client, previousRooms []string) bool {
-	return s.roomManager.HandleResume(client, previousRooms)
-}
-
-// --8<-- [end:connect]
 
 // --8<-- [start:setname-handler]
 // handleSetName lets the client announce (or re-announce, after a
@@ -85,13 +39,44 @@ func (s *chatServer) handleSetName(client knet.Client, payload []byte) {
 
 // --8<-- [end:setname-handler]
 
-func (s *chatServer) broadcastPresence(ctx context.Context, roomID string, cmd uint32, name string) {
-	r, ok := s.roomManager.Room(roomID)
-	if !ok {
-		return
-	}
-	payload, _ := json.Marshal(presenceMessage{Name: name})
-	if err := r.Broadcast(ctx, cmd, payload); err != nil {
+// --8<-- [start:lobby-room]
+// lobbyRoom is a roommanager.RoomHandler: everything about the "lobby" room
+// type lives in this one type, the same shape as a Colyseus Room class
+// (OnCreate/OnJoin/OnLeave/OnDispose). One instance is created per room
+// instance by the Manager — see main.go's roomManager.Define("lobby", ...).
+type lobbyRoom struct {
+	view  room.View // this room's broadcast handle, set in OnCreate
+	names *nameStore
+}
+
+// OnCreate runs once, the first time a client joins this room instance.
+func (r *lobbyRoom) OnCreate(v room.View) {
+	r.view = v
+}
+
+// OnJoin runs for every client that joins, including the one that triggers
+// OnCreate above (OnCreate then OnJoin, in that order).
+func (r *lobbyRoom) OnJoin(client knet.Client) {
+	r.broadcastPresence(CmdUserJoined, client.ID())
+}
+
+// OnLeave runs for every client that leaves — explicit leave, voluntary
+// disconnect, or an involuntary drop whose grace period expired without a
+// reconnect. All three cases already reach here the same way; see
+// "Voluntary vs. involuntary exit" in the docs for how that's decided.
+func (r *lobbyRoom) OnLeave(client knet.Client) {
+	r.broadcastPresence(CmdUserLeft, client.ID())
+}
+
+// OnDispose runs once, when the room closes (membership hits zero). Nothing
+// to clean up here — lobbyRoom holds no state beyond the shared *nameStore.
+func (r *lobbyRoom) OnDispose() {}
+
+func (r *lobbyRoom) broadcastPresence(cmd uint32, clientID string) {
+	payload, _ := json.Marshal(presenceMessage{Name: r.names.get(clientID)})
+	if err := r.view.Broadcast(context.Background(), cmd, payload); err != nil {
 		log.Printf("broadcast presence failed: %v", err)
 	}
 }
+
+// --8<-- [end:lobby-room]

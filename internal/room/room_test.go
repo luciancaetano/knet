@@ -3,10 +3,11 @@ package room
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestRoomAddHasRemoveSize(t *testing.T) {
-	r := New("lobby")
+	r := New("lobby", 50*time.Millisecond)
 	if r.ID() != "lobby" {
 		t.Fatalf("ID() = %q, want lobby", r.ID())
 	}
@@ -44,7 +45,7 @@ func TestRoomAddHasRemoveSize(t *testing.T) {
 }
 
 func TestRoomClients(t *testing.T) {
-	r := New("lobby")
+	r := New("lobby", 50*time.Millisecond)
 	r.Add(&fakeClient{id: "a"})
 	r.Add(&fakeClient{id: "b"})
 
@@ -55,7 +56,7 @@ func TestRoomClients(t *testing.T) {
 }
 
 func TestRoomBroadcast(t *testing.T) {
-	r := New("lobby")
+	r := New("lobby", 50*time.Millisecond)
 	c1 := &fakeClient{id: "a"}
 	c2 := &fakeClient{id: "b"}
 	r.Add(c1)
@@ -70,7 +71,7 @@ func TestRoomBroadcast(t *testing.T) {
 }
 
 func TestRoomBroadcastExcept(t *testing.T) {
-	r := New("lobby")
+	r := New("lobby", 50*time.Millisecond)
 	c1 := &fakeClient{id: "a"}
 	c2 := &fakeClient{id: "b"}
 	r.Add(c1)
@@ -88,7 +89,7 @@ func TestRoomBroadcastExcept(t *testing.T) {
 }
 
 func TestRoomBroadcastPartialFailure(t *testing.T) {
-	r := New("lobby")
+	r := New("lobby", 50*time.Millisecond)
 	c1 := &fakeClient{id: "a", sendErr: errFakeSend}
 	c2 := &fakeClient{id: "b"}
 	r.Add(c1)
@@ -101,7 +102,7 @@ func TestRoomBroadcastPartialFailure(t *testing.T) {
 }
 
 func TestRoomClose(t *testing.T) {
-	r := New("lobby")
+	r := New("lobby", 50*time.Millisecond)
 	c1 := &fakeClient{id: "a"}
 	c2 := &fakeClient{id: "b"}
 	r.Add(c1)

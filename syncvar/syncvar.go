@@ -58,7 +58,7 @@ var ErrTypeMismatch = errors.New("syncvar: payload tag does not match sync var t
 //	posX.Set(newX)
 //
 //	// TimeManager handler, every tick:
-//	tm.RegisterRoom(room, PosCmd, func(tick uint64) []byte {
+//	tm.RegisterRoom(room, PosCmd, func(t clock.Tick) []byte {
 //	    payload, changed := posX.Flush()
 //	    if !changed {
 //	        return nil

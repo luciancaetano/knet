@@ -77,7 +77,7 @@ Rooms can only ever be created by a `Manager` — the constructor and the mutabl
 
 | Method | Description |
 |---|---|
-| `Room(roomID) (room.View, bool)` | read/broadcast-only view of the room: `ID()`, `Has()`, `Clients()`, `Size()`, `Broadcast()`, `BroadcastExcept()` |
+| `Room(roomID) (room.View, bool)` | read/broadcast-only view of the room: `ID()`, `Has()`, `Clients()`, `Size()`, `Broadcast()`, `BroadcastExcept()`, `Clock()` |
 | `RoomsOf(clientID) []string` | rooms a client currently belongs to |
 | `Rooms() []string` | all currently open room IDs |
 | `Server() knet.Server` | the underlying server this Manager is attached to |

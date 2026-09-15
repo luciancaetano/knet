@@ -20,7 +20,7 @@ Almost everything here is `roommanager`'s own reserved protocol (`0xFFFE0001`-`0
 |---|---|---|---|
 | `0x0001` SetName | client → server | text (desired name) | sets/updates the name on connect or reconnect |
 | `0x0003` UserJoined | server → room | JSON `{"name"}` | someone joined, with their name |
-| `0x0004` UserLeft | server → room | JSON `{"name"}` | someone left **voluntarily**, with their name |
+| `0x0004` UserLeft | server → room | JSON `{"name"}` | someone left the room — explicit leave, or grace period expired — with their name |
 | `CmdRoomMessage` | client → server → room | JSON `{"roomId","type":"chat","data"}` | chat message, `data` is the text |
 | `CmdRoomMemberEvent` | server → room | `{"roomId","clientId","type"}` | built-in join/left/disconnected/reconnected, keyed by clientId |
 
@@ -32,7 +32,7 @@ The server is organized into 4 files, each with a single responsibility — not 
 examples/chat/
 ├── protocol.go   # the one custom command ID and its payload type
 ├── names.go      # name storage keyed by clientID
-├── server.go     # chatServer: ConnectHooks wiring, roommanager attach, OnResume
+├── server.go     # chatServer (shared state) + lobbyRoom (per-room presence logic)
 └── main.go       # bootstrap: assembles the ws.Server, roommanager.Manager, and registers everything
 ```
 
@@ -54,31 +54,33 @@ We only need one custom command: `SetName`. Everything else — join, leave, pre
 
 ### 2.3 `server.go` — the `chatServer` type
 
-All the chat logic lives in methods of a single type, `chatServer`, which holds the `roommanager.Manager` and the `nameStore`.
+`chatServer` just holds shared state: the `roommanager.Manager` and the `nameStore`. `roomManager` starts out `nil` and gets set once, in `main()` (2.7) — it needs the `knet.Server` to register its handlers on, which doesn't exist yet at `newChatServer()`.
 
 ```go
 --8<-- "examples/chat/server.go:server-type"
 ```
 
-`roommanager.New` needs the `knet.Server` to register its handlers on, which doesn't exist until `ws.New` runs — see [2.7](#27-maingo-assembling-the-server) for why this is a two-step construction (`newChatServer` then `attachRoomManager`). It also takes the same `*knet.ConnectHooks` passed to `ws.Config` (mandatory — `New` panics on `nil`), so it can self-register its own connect/disconnect tracking rather than relying on the app to call `HandleConnect`/`HandleDisconnect` by hand. `OnAfterJoin`/`OnAfterLeave` are two of `roommanager`'s [hooks](room-manager.md#hooks) — the built-in `CmdRoomMemberEvent` already tells other clients a `clientId` joined/left, so these hooks add a human-readable name on top via the one custom command this example keeps.
-
-### 2.4 `OnConnect`, `OnDisconnect`, `OnResume` — wiring `roommanager` in
-
-```go
---8<-- "examples/chat/server.go:connect"
-```
-
-`roommanager` never touches knet core on its own, but it also can't be forgotten: `roommanager.New` requires a `*knet.ConnectHooks` (see [Room Manager → Setup](room-manager.md#setup)) and registers its own `HandleConnect`/`HandleDisconnect` on it internally, so `chatServer.onConnect`/`onDisconnect` here only need to handle app-specific concerns (logging, clearing the display name) — both listeners run off the same hooks, registered independently in `attachRoomManager`/`main.go`. `OnResume` is still a single-slot field on `ServerConfig`, so `chatServer.onResume` wires `HandleResume` into it by hand. `HandleDisconnect` already does the voluntary/involuntary distinction for us: a voluntary leave removes room membership right away (firing `OnAfterLeave`); an involuntary drop keeps membership pending for a grace period (default 30s) so `HandleResume` can restore it if the client reconnects in time — no application code needed to tell those two cases apart, `knet`'s own `voluntary bool` parameter already carries it.
-
-### 2.5 `SetName` handler
+### 2.4 `SetName` handler
 
 ```go
 --8<-- "examples/chat/server.go:setname-handler"
 ```
 
-Just stores the name — the `UserJoined` presence broadcast now happens from the `OnAfterJoin` hook (2.3), not here, since a client may `SetName` before or after joining the room.
+Just stores the name — the `UserJoined` presence broadcast happens from `lobbyRoom.OnJoin` (2.5), not here, since a client may `SetName` before or after joining the room. It's registered directly with `server.RegisterHandler(ctx, CmdSetName, chat.handleSetName)` — a real command handler, so it stays a method, not an inline closure.
 
 Chat itself needs no server-side handler at all: `roommanager`'s built-in `CmdRoomMessage` command already forwards a `sendMessage` call to every other member of the room.
+
+### 2.5 `lobbyRoom` — a Colyseus-style room class
+
+Everything about presence for the `"lobby"` room type lives in one type, `lobbyRoom`, implementing `roommanager.RoomHandler`. If you've used [Colyseus](https://colyseus.io/), this is the same shape: `OnCreate`/`OnJoin`/`OnLeave`/`OnDispose`. `roommanager` creates one `lobbyRoom` instance per room instance, the first time a client joins with `roomType: "lobby"` (see [3.3](#33-wiring-it-all-up-in-the-ui)) — registered via `chat.roomManager.Define("lobby", ...)` in `main()` (2.7).
+
+```go
+--8<-- "examples/chat/server.go:lobby-room"
+```
+
+- `OnCreate` runs once, when the room instance is first created — it hands you `view room.View`, this room's own broadcast handle, which `lobbyRoom` keeps so `broadcastPresence` can call `r.view.Broadcast(...)` — scoped to just this room, never the whole server.
+- `OnJoin`/`OnLeave` run for every member that joins or leaves this room instance (leave covers explicit leave *and* grace-period expiry — see [5](#5-voluntary-vs-involuntary-exit)).
+- `OnDispose` runs once, when the room closes (membership hits zero) — nothing to clean up here.
 
 ### 2.6 Serving `index.html` — and why `wss://`
 
@@ -92,7 +94,13 @@ A browser that loads the page over `https://` is only allowed to open `wss://` s
 
 ### 2.7 `main.go` — assembling the server
 
-`main.go` creates the `chatServer`, builds a `*knet.ConnectHooks` with the `chatServer` methods registered as listeners, points `ws.Config` at `hooks.DispatchConnect`/`hooks.DispatchDisconnect` (enabling `wss://` via `ws.WithTLS`), then — only once the `ws.Server` exists — constructs the `roommanager.Manager` via `chat.attachRoomManager(server, hooks)` (which registers its own tracking on the same `hooks`) and sets `cfg.OnResume`. It registers the one remaining custom handler (`SetName`), starts the static server, and boots with graceful shutdown.
+`main.go` assembles everything in a straight line, no jumping to another file to see what a callback does:
+
+1. `newChatServer()`, then a `*knet.ConnectHooks` with two inline closures — connect logging, and disconnect logging + clearing the client's name — wired to `ws.Config` via `hooks.DispatchConnect`/`hooks.DispatchDisconnect` (`ws.WithTLS` enables `wss://`).
+2. Once the `ws.Server` exists, `roommanager.New(server, hooks, roommanager.Config{})` — it self-registers connect/disconnect tracking on the same `hooks`.
+3. `chat.roomManager.Define("lobby", func() roommanager.RoomHandler { return &lobbyRoom{names: chat.names} })` — registers the room type from 2.5. The factory runs once per room instance, not once per client.
+4. `cfg.OnResume` — a single-slot field, not a `ConnectHooks` listener — wired to `roomManager.HandleResume` so a reconnect within the grace period resumes previous room membership.
+5. The one remaining custom handler (`SetName`), the static file server, then `server.Start(ctx)` and graceful shutdown.
 
 ```go
 --8<-- "examples/chat/main.go:bootstrap"
@@ -128,7 +136,7 @@ Only `SetName` and the two presence commands are custom — `RoomManager` (const
 
 Important points:
 
-- on `connected`, the client resends `SetName` **and** calls `rooms.joinRoom(ROOM_ID)` — both need to happen on every connect, initial or reconnect (see [4](#4-reconnection-in-practice))
+- on `connected`, the client resends `SetName` **and** calls `rooms.joinRoom(ROOM_ID, ROOM_TYPE)` — both need to happen on every connect, initial or reconnect (see [4](#4-reconnection-in-practice)); `ROOM_TYPE` ("lobby") must match the key passed to `roomManager.Define` on the server (2.5), or the first join for a room has no `RoomHandler` factory to run
 - `rooms.sendMessage(ROOM_ID, "chat", text)` replaces a raw `client.send(...)` call — it's scoped to the room, not broadcast to the whole server
 - `rooms.on("message", ...)` delivers other members' chat messages, tagged with `senderId`; the client keeps a small local `clientId -> name` map (populated from `UserJoined`/`UserLeft`) to render a name instead of a raw ID
 - `rooms.on("memberDisconnected", ...)` reports an involuntary drop for another member, sourced from `roommanager`'s grace-period tracking
@@ -150,7 +158,7 @@ This is the chat's trickiest requirement, and `roommanager` solves it for you vi
 | Client process is killed (`kill -9`, crash) | No close frame | `disconnected`, same grace period |
 | Client reconnects within `GraceTTL` | `OnResume` fires with the previous room list | `CmdRoomMemberEvent` type `reconnected`, membership restored automatically |
 
-There's no application code deciding this — it's the `voluntary` parameter of `OnDisconnect` (section [2.4](#24-onconnect-ondisconnect-onresume-wiring-roommanager-in)) that carries this information, computed by the WebSocket protocol itself, and `roommanager.HandleDisconnect`/`HandleResume` that turn it into the right membership state machine.
+There's no application code deciding this — it's the `voluntary` parameter of `OnDisconnect` (section [2.7](#27-maingo-assembling-the-server)) that carries this information, computed by the WebSocket protocol itself, and `roommanager.HandleDisconnect`/`HandleResume` that turn it into the right membership state machine. `lobbyRoom.OnLeave` (2.5) fires the same way whether the leave was explicit or a grace-period expiry — it doesn't need to know which.
 
 ## 6. Running the example
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/luciancaetano/knet"
+	"github.com/luciancaetano/knet/clock"
 	"github.com/luciancaetano/knet/internal/room"
 	"github.com/luciancaetano/knet/timing"
 	"github.com/luciancaetano/knet/ws"
@@ -44,7 +45,7 @@ func startServer(withRoom, withTicker bool, tickInterval time.Duration) (*server
 
 	var rm room.Room
 	if withRoom {
-		rm = room.New("bench")
+		rm = room.New("bench", tickInterval)
 	}
 
 	cfg := ws.NewConfig(addr, ws.NoRateLimit(), ws.AllOrigins(), func(c knet.Client) bool {
@@ -78,9 +79,9 @@ func startServer(withRoom, withTicker bool, tickInterval time.Duration) (*server
 			return nil, err
 		}
 		if rm != nil {
-			tm.RegisterRoom(rm, 2, func(uint64) []byte { return []byte("tick") })
+			tm.RegisterRoom(rm, 2, func(clock.Tick) []byte { return []byte("tick") })
 		} else {
-			tm.Register(2, func(uint64) []byte { return []byte("tick") })
+			tm.Register(2, func(clock.Tick) []byte { return []byte("tick") })
 		}
 		tm.Start(ctx)
 	}

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/luciancaetano/knet"
+	"github.com/luciancaetano/knet/clock"
 )
 
 // Room is a named set of connected clients that can be broadcast to as a group.
@@ -16,7 +18,7 @@ import (
 //
 // Example — broadcast to everyone in a lobby except the sender:
 //
-//	lobby := room.New("lobby-1")
+//	lobby := room.New("lobby-1", 50*time.Millisecond)
 //
 //	// OnConnect: track the client
 //	func(c knet.Client) bool {
@@ -62,6 +64,11 @@ type View interface {
 	// Typically used in relay patterns where the sender should not receive
 	// their own message.
 	BroadcastExcept(ctx context.Context, excludeID string, commandID uint32, payload []byte) error
+
+	// Clock returns this room's own [clock.Clock], for scheduling
+	// SetInterval/SetTimeout callbacks scoped to the room (e.g. a match tick
+	// loop). It is created stopped; call Clock().Start() to run it.
+	Clock() clock.Clock
 }
 
 // Room is the full room primitive, adding membership mutation on top of
@@ -89,19 +96,24 @@ type room struct {
 	id      string
 	mu      sync.RWMutex
 	clients map[string]knet.Client
+	clock   clock.Clock
 }
 
-// New creates a new, empty Room with the given identifier.
+// New creates a new, empty Room with the given identifier and a stopped
+// [clock.Clock] running at tickInterval, available via [Room.Clock].
 // The id is arbitrary; the caller is responsible for uniqueness within
 // the application.
-func New(id string) Room {
+func New(id string, tickInterval time.Duration) Room {
 	return &room{
 		id:      id,
 		clients: make(map[string]knet.Client),
+		clock:   clock.New(tickInterval),
 	}
 }
 
 func (r *room) ID() string { return r.id }
+
+func (r *room) Clock() clock.Clock { return r.clock }
 
 func (r *room) Add(client knet.Client) {
 	r.mu.Lock()
@@ -185,6 +197,8 @@ func (r *room) broadcastFiltered(ctx context.Context, excludeID string, commandI
 }
 
 func (r *room) Close(ctx context.Context) {
+	r.clock.Stop()
+
 	r.mu.Lock()
 	clients := make([]knet.Client, 0, len(r.clients))
 	for _, c := range r.clients {

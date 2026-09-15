@@ -23,6 +23,10 @@ import (
 	"github.com/luciancaetano/knet/internal/room"
 )
 
+// defaultRoomTickInterval is used for a room's [clock.Clock] when
+// Config.RoomTickInterval is unset.
+const defaultRoomTickInterval = 50 * time.Millisecond
+
 // defaultGraceTTL matches knet's own default SessionGraceTTL
 // (internal/websocket.Server), used when Config.GraceTTL is 0.
 const defaultGraceTTL = 30 * time.Second
@@ -38,6 +42,10 @@ type Config struct {
 	// MaxMembersPerRoom caps how many clients may join a single room.
 	// 0 = unlimited.
 	MaxMembersPerRoom int
+
+	// RoomTickInterval is the base interval for each room's [clock.Clock]
+	// (see [room.Room.Clock]). 0 = defaultRoomTickInterval (50ms / 20Hz).
+	RoomTickInterval time.Duration
 }
 
 // pendingMember tracks a disconnected-but-not-yet-finalized client's room
@@ -88,6 +96,9 @@ func New(server knet.Server, hooks *knet.ConnectHooks, cfg Config) *Manager {
 	}
 	if cfg.GraceTTL <= 0 {
 		cfg.GraceTTL = defaultGraceTTL
+	}
+	if cfg.RoomTickInterval <= 0 {
+		cfg.RoomTickInterval = defaultRoomTickInterval
 	}
 
 	m := &Manager{
@@ -436,7 +447,7 @@ func (m *Manager) handleJoin(client knet.Client, payload []byte) {
 	m.mu.Lock()
 	rm, existed := m.rooms[req.RoomID]
 	if !existed {
-		rm = room.New(req.RoomID)
+		rm = room.New(req.RoomID, m.cfg.RoomTickInterval)
 	}
 
 	if m.cfg.MaxMembersPerRoom > 0 && rm.Size() >= m.cfg.MaxMembersPerRoom {

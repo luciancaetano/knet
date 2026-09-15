@@ -9,7 +9,7 @@ package main
 const (
 	CmdSetName    uint32 = 0x0001 // client -> server: desired display name (UTF-8 text)
 	CmdUserJoined uint32 = 0x0003 // server -> room: someone joined, with their name
-	CmdUserLeft   uint32 = 0x0004 // server -> room: someone left voluntarily, with their name
+	CmdUserLeft   uint32 = 0x0004 // server -> room: someone left the room (explicit leave, or grace period expired), with their name
 )
 
 // --8<-- [end:commands]

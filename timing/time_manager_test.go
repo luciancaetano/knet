@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luciancaetano/knet/clock"
 	"github.com/luciancaetano/knet/internal/room"
 	"github.com/luciancaetano/knet/observer"
 )
@@ -16,9 +17,9 @@ func TestTimeManagerGlobalBroadcast(t *testing.T) {
 
 	var mu sync.Mutex
 	var ticks []uint64
-	tm.Register(1, func(tick uint64) []byte {
+	tm.Register(1, func(tick clock.Tick) []byte {
 		mu.Lock()
-		ticks = append(ticks, tick)
+		ticks = append(ticks, tick.CurrentTick())
 		mu.Unlock()
 		return []byte("payload")
 	})
@@ -47,11 +48,11 @@ func TestTimeManagerGlobalBroadcast(t *testing.T) {
 func TestTimeManagerRoomScopedBroadcast(t *testing.T) {
 	srv := &fakeServer{}
 	tm := New(srv, 5*time.Millisecond)
-	rm := room.New("match")
+	rm := room.New("match", 5*time.Millisecond)
 	c := &fakeClient{id: "p1"}
 	rm.Add(c)
 
-	tm.RegisterRoom(rm, 2, func(tick uint64) []byte {
+	tm.RegisterRoom(rm, 2, func(tick clock.Tick) []byte {
 		return []byte("state")
 	})
 
@@ -75,7 +76,7 @@ func TestTimeManagerRoomScopedBroadcast(t *testing.T) {
 func TestTimeManagerSkipsNilPayload(t *testing.T) {
 	srv := &fakeServer{}
 	tm := New(srv, 5*time.Millisecond)
-	tm.Register(1, func(tick uint64) []byte { return nil })
+	tm.Register(1, func(tick clock.Tick) []byte { return nil })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	tm.Start(ctx)
@@ -99,7 +100,7 @@ func TestTimeManagerStopHaltsLoop(t *testing.T) {
 	tm := New(srv, 5*time.Millisecond)
 	var mu sync.Mutex
 	count := 0
-	tm.Register(1, func(tick uint64) []byte {
+	tm.Register(1, func(tick clock.Tick) []byte {
 		mu.Lock()
 		count++
 		mu.Unlock()
@@ -126,8 +127,8 @@ func TestTimeManagerStopHaltsLoop(t *testing.T) {
 func TestTimeManagerChaining(t *testing.T) {
 	srv := &fakeServer{}
 	tm := New(srv, time.Second)
-	rm := room.New("r")
-	result := tm.Register(1, func(uint64) []byte { return nil }).RegisterRoom(rm, 2, func(uint64) []byte { return nil })
+	rm := room.New("r", time.Second)
+	result := tm.Register(1, func(clock.Tick) []byte { return nil }).RegisterRoom(rm, 2, func(clock.Tick) []byte { return nil })
 	if result != tm {
 		t.Fatal("expected chaining to return same tm")
 	}
@@ -138,9 +139,9 @@ func TestTimeManagerPreAndPostTickHooks(t *testing.T) {
 	tm := New(srv, time.Second)
 
 	var order []string
-	tm.OnPreTick(func(tick uint64) { order = append(order, "pre") })
-	tm.Register(1, func(tick uint64) []byte { order = append(order, "tick"); return nil })
-	tm.OnPostTick(func(tick uint64) { order = append(order, "post") })
+	tm.OnPreTick(func(tick clock.Tick) { order = append(order, "pre") })
+	tm.Register(1, func(tick clock.Tick) []byte { order = append(order, "tick"); return nil })
+	tm.OnPostTick(func(tick clock.Tick) { order = append(order, "post") })
 
 	tm.dispatch(context.Background(), 5)
 
@@ -192,7 +193,7 @@ func TestTimeManagerTickTimeConversions(t *testing.T) {
 }
 
 func TestTimeManagerRegisterObserverSet(t *testing.T) {
-	r := room.New("zone")
+	r := room.New("zone", time.Second)
 	near := &fakeClient{id: "near"}
 	far := &fakeClient{id: "far"}
 	r.Add(near)
@@ -208,7 +209,7 @@ func TestTimeManagerRegisterObserverSet(t *testing.T) {
 
 	srv := &fakeServer{}
 	tm := New(srv, 0)
-	tm.RegisterObserverSet(set, nil, 1, func(uint64) []byte { return []byte("state") })
+	tm.RegisterObserverSet(set, nil, 1, func(clock.Tick) []byte { return []byte("state") })
 
 	tm.dispatch(context.Background(), 0)
 

@@ -157,32 +157,39 @@ A client over the rate limit is closed with code `1008` (Policy Violation).
 
 ## Rooms
 
-`room` package (opt-in) groups clients into named sets for scoped broadcasting — matches, lobbies, zones, chat channels.
+`roommanager` package (opt-in) is the public API for named client groups — matches, lobbies, zones, chat channels. Rooms are created on first join and closed when empty; application code never constructs a room directly. See [`docs-site/docs/rooms-observer.md`](docs-site/docs/rooms-observer.md) and [`examples/chat`](examples/chat) for the full walkthrough.
 
 ```go
-import "github.com/luciancaetano/knet/room"
+import "github.com/luciancaetano/knet/roommanager"
 
-lobby := room.New("lobby-1")
-
+hooks := &knet.ConnectHooks{}
 config := ws.NewConfig(":8080", ws.DefaultRateLimitConfig(), ws.AllOrigins(),
-	func(client knet.Client) { lobby.Add(client) },
-	func(client knet.Client) { lobby.Remove(client.ID()) },
+	hooks.DispatchConnect, hooks.DispatchDisconnect,
 )
 server := ws.New(config)
 
+rm := roommanager.New(server, hooks, roommanager.Config{})
+config.OnResume = rm.HandleResume // resume pending membership after reconnect
+
 server.RegisterHandler(ctx, ChatCmd, func(client knet.Client, payload []byte) {
-	lobby.BroadcastExcept(ctx, client.ID(), ChatCmd, payload)
+	for _, roomID := range rm.RoomsOf(client.ID()) {
+		room, _ := rm.Room(roomID)
+		room.BroadcastExcept(ctx, client.ID(), ChatCmd, payload)
+	}
 })
 ```
 
+Clients join/leave via `roommanager`'s own reserved commands — the client sends `CmdRoomJoin`/`CmdRoomLeave` (see `@lcaetano/knet-client`'s `RoomManager` or the Unity client), `Manager` tracks membership and grace-period reconnects, and each room gets its own `clock.Clock` (see [Clock](docs-site/docs/syncvar-timing.md#clock-setintervalsettimeout-for-game-loops)) for scheduling scoped tick loops.
+
 | Method | Description |
 |--------|-------------|
-| `Add(client)` | insert a client (idempotent on reconnect) |
-| `Remove(clientID)` | evict a client, no-op if absent |
-| `Has(clientID)` | check membership |
-| `Clients()` | snapshot of all clients in the room |
-| `Broadcast(ctx, commandID, payload)` | send to everyone in the room |
-| `BroadcastExcept(ctx, excludeID, commandID, payload)` | send to everyone but one client |
+| `roommanager.New(server, hooks, cfg) *Manager` | wire up room lifecycle + reserved commands |
+| `Manager.Room(roomID) (Room, bool)` | look up a room by ID |
+| `Manager.RoomsOf(clientID) []string` | list room IDs a client is a member of |
+| `Manager.OnAfterJoin/OnAfterLeave(fn)` | hooks fired after membership changes |
+| `Room.Broadcast(ctx, commandID, payload)` | send to everyone in the room |
+| `Room.BroadcastExcept(ctx, excludeID, commandID, payload)` | send to everyone but one client |
+| `Room.Clock() clock.Clock` | this room's scheduler, created stopped |
 | `Close(ctx)` | remove and disconnect all clients |
 
 A client can belong to multiple rooms at once.

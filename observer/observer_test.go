@@ -3,12 +3,13 @@ package observer
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/luciancaetano/knet/internal/room"
 )
 
 func TestObserverSetOwnerOnly(t *testing.T) {
-	r := room.New("zone")
+	r := room.New("zone", 50*time.Millisecond)
 	owner := &fakeClient{id: "owner"}
 	other := &fakeClient{id: "other"}
 	r.Add(owner)
@@ -35,7 +36,7 @@ func TestObserverSetOwnerOnly(t *testing.T) {
 }
 
 func TestObserverSetDistance(t *testing.T) {
-	r := room.New("zone")
+	r := room.New("zone", 50*time.Millisecond)
 	near := &fakeClient{id: "near"}
 	far := &fakeClient{id: "far"}
 	r.Add(near)
@@ -61,7 +62,7 @@ func TestObserverSetDistance(t *testing.T) {
 }
 
 func TestObserverSetMultipleConditionsAND(t *testing.T) {
-	r := room.New("zone")
+	r := room.New("zone", 50*time.Millisecond)
 	c := &fakeClient{id: "a"}
 	r.Add(c)
 
@@ -72,7 +73,7 @@ func TestObserverSetMultipleConditionsAND(t *testing.T) {
 }
 
 func TestObserverSetBroadcastPartialFailure(t *testing.T) {
-	r := room.New("zone")
+	r := room.New("zone", 50*time.Millisecond)
 	c1 := &fakeClient{id: "a", sendErr: errFakeSend}
 	c2 := &fakeClient{id: "b"}
 	r.Add(c1)
