@@ -52,6 +52,17 @@
 // In addition to binary commands, the library supports JSON-RPC 2.0 for standard RPC workflows.
 // JSON-RPC messages use reserved command IDs (0xFFFFFFFF for requests, 0xFFFFFFFE for errors).
 //
+// # Timing and Round-Trip Time
+//
+// The timing package's TimeManager drives fixed-rate tick broadcasts and tracks
+// tick-relative timing: tick lifecycle hooks, server uptime, tick↔duration
+// conversions, and optional per-client round-trip time via ping/pong (see
+// TimeManager.EnablePing). Ping/pong uses reserved command ID 0xFFFFFFFD.
+//
+// Room grouping, interest-managed broadcasts, and dirty-tracked state sync
+// are opt-in features in the room, observer, and syncvar packages,
+// respectively.
+//
 // # Rate Limiting
 //
 // Each client has independent rate limiting using token bucket algorithm:

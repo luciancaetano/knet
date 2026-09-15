@@ -490,8 +490,10 @@ go-kephas-net/
 ├── Makefile                   # Build commands
 ├── go.mod                     # Go module definition
 ├── doc.go                     # Package documentation
-├── knet.go              # Public interfaces (WebsocketServer, Client)
+├── kephasnet.go              # Public interfaces (Server, Client)
 ├── commands.go               # Constants (command IDs, errors)
+├── session.go                # SessionStore interface
+├── logger.go, metrics.go     # Logger/Metrics interfaces + default no-op impls
 │
 ├── internal/                 # Internal implementation (not part of public API)
 │   ├── protocol/            
@@ -502,6 +504,11 @@ go-kephas-net/
 │
 ├── ws/                       # Public factory package
 │   └── server.go             # Factory functions (New, DefaultRateLimitConfig, etc.)
+│
+├── room/                     # Opt-in: named client groups (room.Room, room.New)
+├── observer/                 # Opt-in: interest-managed broadcast (observer.Set, observer.NewSet)
+├── syncvar/                  # Opt-in: dirty-tracked state sync (syncvar.SyncVar, syncvar.New)
+├── timing/                   # Opt-in: tick scheduler + RTT ping (timing.TimeManager, timing.New)
 │
 ├── examples/                 # Example applications
 │   └── js-chat/              # JavaScript chat example
@@ -976,7 +983,7 @@ go tool cover -html=coverage.out
 
 ### Stress Tests
 
-Stress tests validate performance under high load conditions. See [`tests/stress/README.md`](tests/stress/README.md) for detailed information.
+Stress tests validate performance under high load conditions. See [`tests/stress/README.md`](tests/stress/README.md) for detailed information. For stress/e2e tests that run against the server in a real Docker container (isolated process, real network), see [`docs/testing.md`](docs/testing.md).
 
 **Quick stress test:**
 ```bash
