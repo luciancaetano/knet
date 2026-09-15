@@ -13,9 +13,6 @@ ws.NewConfig(addr, rateLimit, checkOrigin, onConnect, onDisconnect)
 | `checkOrigin` | `ws.CheckOriginFn` | `ws.AllOrigins()` or `func(*http.Request) bool` |
 | `onConnect` / `onDisconnect` | `func(knet.Client)` | optional, `nil` allowed |
 
-!!! warning
-    Never use `ws.AllOrigins()` in production — it accepts WebSocket upgrades from any origin.
-
 ```go
 checkOrigin := func(r *http.Request) bool {
 	allowed := map[string]bool{"https://yourdomain.com": true}

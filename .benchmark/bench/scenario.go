@@ -46,7 +46,7 @@ func DefaultLoads() []int {
 			return loads
 		}
 	}
-	return []int{100, 500, 1000, 5000, 10000}
+	return []int{100, 500, 1000, 5000, 6000, 7000, 8000, 9000, 10000}
 }
 
 const (

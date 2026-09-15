@@ -105,5 +105,5 @@
 //
 //   - DO NOT modify decoded payload (it references the original buffer)
 //   - Handlers execute in goroutines (no execution order guarantee)
-//   - Configure CheckOriginFn in production (never use ws.AllOrigins() in production)
+//   - Configure CheckOriginFn in production
 package knet
