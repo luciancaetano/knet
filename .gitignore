@@ -36,3 +36,4 @@ go.work.sum
 clients/js/dist/
 clients/js/.npmrc
 clients/js/node_modules/
+*Zone.Identifier
