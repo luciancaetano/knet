@@ -1,6 +1,4 @@
-.PHONY: test
-
-.PHONY: test test-unit test-e2e test-stress test-docker-stress test-docker-e2e test-coverage chat-example clean help docs docs-install
+.PHONY: test test-unit test-e2e test-stress test-coverage chat-example clean help docs docs-install
 
 # Default target
 help:
@@ -9,8 +7,6 @@ help:
 	@echo "  make test-unit     - Run unit tests only"
 	@echo "  make test-e2e      - Run end-to-end tests only"
 	@echo "  make test-stress   - Run stress tests (requires high ulimit)"
-	@echo "  make test-docker-stress - Run stress tests against the Dockerized server"
-	@echo "  make test-docker-e2e    - Run full Docker e2e (up, test, down)"
 	@echo "  make test-coverage - Run tests with coverage report"
 	@echo "  make chat-example  - Run the JS chat example over wss:// (generates a dev cert)"
 	@echo "  make docs          - Serve the documentation site locally (live reload)"
@@ -18,34 +14,21 @@ help:
 
 # Run all tests
 test:
-	@echo "==> Running all tests..."
-	go test ./tests/... -v
+	go test ./tests/...
 
-# Run unit tests
+# Run unit tests only
 test-unit:
-	@echo "==> Running unit tests..."
-	go test ./tests/unit/... -v
+	go test ./tests/unit/...
 
-# Run end-to-end tests
+# Run e2e tests only
 test-e2e:
-	@echo "==> Running end-to-end tests..."
-	go test ./tests/e2e/... -v
+	go test ./tests/e2e/...
 
 # Run stress tests
 test-stress:
 	@echo "==> Running stress tests (this may take a while)..."
 	@echo "==> Note: You may need to run 'ulimit -n 65536' first"
 	cd tests/stress && go test -v -timeout 30m
-
-# Run stress tests against the server running in Docker (requires: docker compose up -d --build)
-test-docker-stress:
-	@echo "==> Running Docker stress tests..."
-	cd tests/stress && go test -tags docker -run TestDockerStress -timeout 5m -v ./...
-
-# Full Docker e2e: up, wait healthy, round-trip, down
-test-docker-e2e:
-	@echo "==> Running Docker e2e..."
-	./tests/docker-e2e.sh
 
 # Run tests with coverage
 test-coverage:

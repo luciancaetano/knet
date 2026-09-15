@@ -9,8 +9,6 @@ make test              # all tests (./tests/...)
 make test-unit         # ./tests/unit/... only
 make test-e2e          # ./tests/e2e/... only
 make test-stress       # stress tests, needs `ulimit -n 65536` first
-make test-docker-stress # stress tests against Dockerized server (needs `docker compose up -d --build` first)
-make test-docker-e2e   # full docker e2e: up, round-trip, down
 make test-coverage     # coverage.out + coverage.html
 make fmt               # go fmt ./...
 make lint              # golangci-lint run ./...
@@ -19,6 +17,8 @@ make docs              # serve mkdocs site at :8037 (installs .venv/mkdocs-mater
 ```
 
 Single test: `go test ./tests/unit/... -run TestName -v` (swap the path for `./tests/e2e/...` etc). Package-level unit tests also live alongside source, e.g. `go test ./room/... -run TestName -v`.
+
+After editing any `.go` file, run `make fmt` (`go fmt ./...`) and `make lint` (`golangci-lint run ./...`) before finishing the task.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ Everything past the core protocol is opt-in and independently composable — eac
 - `syncvar/` — dirty-tracked state sync (see `spec/spec-architecture-room-manager.md` for the design this was built against).
 - `timing/` — tick scheduler + RTT ping/pong (`ping.go`, `time_manager.go`).
 
-Test layout mirrors this split: `tests/unit`, `tests/e2e`, `tests/stress` (separate build, `docker` tag for the Dockerized variant, driven by `tests/docker-e2e.sh`) at the top level for cross-package/integration coverage; each package (`room`, `observer`, `syncvar`, `timing`, `ws/*`) also carries its own `*_test.go` and `fakes_test.go` for in-package unit tests.
+Test layout mirrors this split: `tests/unit`, `tests/e2e`, `tests/stress` (separate build) at the top level for cross-package/integration coverage; each package (`room`, `observer`, `syncvar`, `timing`, `ws/*`) also carries its own `*_test.go` and `fakes_test.go` for in-package unit tests.
 
 `examples/` holds runnable consumers per client target: `chat/` (Go server + `js/` client over `wss://` with a generated dev cert, run via `make chat`), `unity/` (Unity client), `metrics-prometheus/`, `stress-echo/`, `wss-echo/`.
 

@@ -36,7 +36,7 @@ Go compiles to a single static binary, with no VM and no heavy runtime to load. 
 
 - **Fewer machines for the same load** — Go's goroutine model processes far more concurrent connections per CPU core than most OS-thread-based alternatives
 - **Less memory per connection** — a goroutine costs a few KB of initial stack, not MBs of thread
-- **Simple, cheap deployment** — a static binary, with no runtime dependencies, fits in a tiny Docker image (see the project's `Dockerfile`) and runs anywhere
+- **Simple, cheap deployment** — a static binary with no runtime dependencies, runs anywhere
 - **No license fee or proprietary runtime** — Go and knet are open source, MIT license
 
 The practical result: you pay for real CPU and memory, not for platform overhead. For a multiplayer game that needs to scale from a handful of players to thousands without rewriting the network stack, that's the kind of savings that adds up month over month.
