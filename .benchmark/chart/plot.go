@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 
 	"gonum.org/v1/plot"
@@ -142,10 +143,42 @@ func readJitterCSV(path string) ([]jitterRow, error) {
 	return rows, nil
 }
 
-func logAxis(p *plot.Plot) {
+// connTicks is a fixed tick marker for the connection-count axis: plain
+// integer labels (100, 500, 1000, ...) instead of scientific notation.
+type connTicks struct{ values []float64 }
+
+func (t connTicks) Ticks(min, max float64) []plot.Tick {
+	ticks := make([]plot.Tick, 0, len(t.values))
+	for _, v := range t.values {
+		if v < min || v > max {
+			continue
+		}
+		ticks = append(ticks, plot.Tick{Value: v, Label: strconv.FormatFloat(v, 'f', 0, 64)})
+	}
+	return ticks
+}
+
+func logAxis(p *plot.Plot, loads []float64) {
 	p.X.Scale = plot.LogScale{}
-	p.X.Tick.Marker = plot.LogTicks{}
+	p.X.Tick.Marker = connTicks{values: loads}
 	p.Add(plotter.NewGrid())
+}
+
+// distinctConns collects the sorted, unique connection counts present across
+// every scenario's rows, used as the fixed X-axis tick values.
+func distinctConns(data map[string][]row) []float64 {
+	seen := map[float64]bool{}
+	var out []float64
+	for _, rows := range data {
+		for _, r := range rows {
+			if r.connections > 0 && !seen[r.connections] {
+				seen[r.connections] = true
+				out = append(out, r.connections)
+			}
+		}
+	}
+	sort.Float64s(out)
+	return out
 }
 
 func toXY(rows []row, f func(row) float64) plotter.XYs {
@@ -179,7 +212,7 @@ func latencyPlot(data map[string][]row) (*plot.Plot, error) {
 	p.Title.Text = "Latency (p99) vs Connections"
 	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "latency (ms)"
-	logAxis(p)
+	logAxis(p, distinctConns(data))
 
 	var args []interface{}
 	for _, s := range scenarios {
@@ -200,7 +233,7 @@ func memoryPlot(data map[string][]row) (*plot.Plot, error) {
 	p.Title.Text = "Memory per Connection vs Connections"
 	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "bytes / connection"
-	logAxis(p)
+	logAxis(p, distinctConns(data))
 
 	var args []interface{}
 	for _, s := range scenarios {
@@ -221,7 +254,7 @@ func throughputPlot(data map[string][]row) (*plot.Plot, error) {
 	p.Title.Text = "Throughput vs Connections"
 	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "messages / sec"
-	logAxis(p)
+	logAxis(p, distinctConns(data))
 
 	var args []interface{}
 	for _, s := range scenarios {
@@ -242,15 +275,22 @@ func jitterPlot(rows []jitterRow) (*plot.Plot, error) {
 	p.Title.Text = "Ticker Jitter (p99) vs Connections"
 	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "tick interval drift (ms)"
-	logAxis(p)
 
+	seen := map[float64]bool{}
+	var loads []float64
 	byMode := map[string]plotter.XYs{}
 	for _, r := range rows {
 		if r.connections <= 0 {
 			continue
 		}
+		if !seen[r.connections] {
+			seen[r.connections] = true
+			loads = append(loads, r.connections)
+		}
 		byMode[r.mode] = append(byMode[r.mode], struct{ X, Y float64 }{X: r.connections, Y: r.p99})
 	}
+	sort.Float64s(loads)
+	logAxis(p, loads)
 
 	var args []interface{}
 	for _, mode := range []string{"no_room", "room"} {
