@@ -54,7 +54,7 @@ func TestMetricsInstrumentation(t *testing.T) {
 	ctx := context.Background()
 
 	handled := make(chan struct{})
-	server.RegisterHandler(ctx, cmdPanic, func(client knet.Client, payload []byte) {
+	_ = server.RegisterHandler(ctx, cmdPanic, func(client knet.Client, payload []byte) {
 		defer close(handled)
 		panic("boom")
 	})
@@ -65,7 +65,7 @@ func TestMetricsInstrumentation(t *testing.T) {
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Stop(stopCtx)
+		_ = server.Stop(stopCtx)
 	}()
 	time.Sleep(200 * time.Millisecond)
 
@@ -73,7 +73,7 @@ func TestMetricsInstrumentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if metrics.count("knet_conn_accepted_total") != 1 {
 		t.Errorf("knet_conn_accepted_total = %d, want 1", metrics.count("knet_conn_accepted_total"))

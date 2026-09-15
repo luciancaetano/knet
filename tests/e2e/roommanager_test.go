@@ -26,7 +26,7 @@ func readCmd(t *testing.T, conn *websocket.Conn, want uint32, timeout time.Durat
 		if remaining <= 0 {
 			t.Fatalf("timed out waiting for command 0x%x", want)
 		}
-		conn.SetReadDeadline(time.Now().Add(remaining))
+		_ = conn.SetReadDeadline(time.Now().Add(remaining))
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			t.Fatalf("read error while waiting for 0x%x: %v", want, err)
@@ -97,7 +97,7 @@ func TestRoomManagerE2E(t *testing.T) {
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Stop(stopCtx)
+		_ = server.Stop(stopCtx)
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -107,7 +107,7 @@ func TestRoomManagerE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("A dial failed: %v", err)
 	}
-	defer connA.Close()
+	defer func() { _ = connA.Close() }()
 
 	sendJoin(t, connA, "lobby")
 	ackPayload := readCmd(t, connA, roommanager.CmdRoomJoinAck, 5*time.Second)
@@ -125,30 +125,30 @@ func TestRoomManagerE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("B dial failed: %v", err)
 	}
-	defer connB.Close()
+	defer func() { _ = connB.Close() }()
 
 	sendJoin(t, connB, "lobby")
 
 	evPayload := readCmd(t, connA, roommanager.CmdRoomMemberEvent, 5*time.Second)
 	var ev roommanager.RoomMemberEvent
-	json.Unmarshal(evPayload, &ev)
+	_ = json.Unmarshal(evPayload, &ev)
 	if ev.Type != roommanager.MemberJoined {
 		t.Fatalf("AC-002: expected joined event on A, got %+v", ev)
 	}
 
 	ackBPayload := readCmd(t, connB, roommanager.CmdRoomJoinAck, 5*time.Second)
 	var ackB roommanager.RoomJoinAck
-	json.Unmarshal(ackBPayload, &ackB)
+	_ = json.Unmarshal(ackBPayload, &ackB)
 	if len(ackB.Members) != 2 {
 		t.Fatalf("AC-002: expected 2 members in B's ack, got %v", ackB.Members)
 	}
 
 	// --- A disconnects involuntarily (garbage frame -> protocol error close)
 	// B sees member-disconnected (AC-004) ---
-	connA.WriteMessage(websocket.BinaryMessage, []byte{0x00, 0x01, 0x02}) // malformed frame
+	_ = connA.WriteMessage(websocket.BinaryMessage, []byte{0x00, 0x01, 0x02}) // malformed frame
 
 	evPayload = readCmd(t, connB, roommanager.CmdRoomMemberEvent, 5*time.Second)
-	json.Unmarshal(evPayload, &ev)
+	_ = json.Unmarshal(evPayload, &ev)
 	if ev.Type != roommanager.MemberDisconnected || ev.ClientID != aID {
 		t.Fatalf("AC-004: expected disconnected event for %s, got %+v", aID, ev)
 	}
@@ -163,17 +163,17 @@ func TestRoomManagerE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("A resume dial failed: %v", err)
 	}
-	defer connA2.Close()
+	defer func() { _ = connA2.Close() }()
 
 	syncPayload := readCmd(t, connA2, roommanager.CmdRoomResumeSync, 5*time.Second)
 	var sync roommanager.RoomResumeSync
-	json.Unmarshal(syncPayload, &sync)
+	_ = json.Unmarshal(syncPayload, &sync)
 	if len(sync.Rooms) != 1 || sync.Rooms[0].RoomID != "lobby" {
 		t.Fatalf("AC-005: unexpected resume sync: %+v", sync)
 	}
 
 	evPayload = readCmd(t, connB, roommanager.CmdRoomMemberEvent, 5*time.Second)
-	json.Unmarshal(evPayload, &ev)
+	_ = json.Unmarshal(evPayload, &ev)
 	if ev.Type != roommanager.MemberReconnected || ev.ClientID != aID {
 		t.Fatalf("AC-005: expected reconnected event for %s, got %+v", aID, ev)
 	}

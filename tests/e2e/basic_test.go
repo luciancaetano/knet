@@ -19,9 +19,9 @@ func TestBasicEcho(t *testing.T) {
 
 	const cmdEcho uint32 = 0x0001
 	// Handler receives client and payload, sends response asynchronously
-	server.RegisterHandler(ctx, cmdEcho, func(client knet.Client, payload []byte) {
+	_ = server.RegisterHandler(ctx, cmdEcho, func(client knet.Client, payload []byte) {
 		// Echo back to the client
-		client.Send(context.Background(), cmdEcho, payload)
+		_ = client.Send(context.Background(), cmdEcho, payload)
 	})
 
 	if err := server.Start(ctx); err != nil {
@@ -31,7 +31,7 @@ func TestBasicEcho(t *testing.T) {
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Stop(stopCtx)
+		_ = server.Stop(stopCtx)
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -40,7 +40,7 @@ func TestBasicEcho(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	testPayload := []byte("Hello!")
 	encoded, _ := protocol.Encode(cmdEcho, testPayload)
@@ -49,7 +49,7 @@ func TestBasicEcho(t *testing.T) {
 		t.Fatalf("Failed to send: %v", err)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, response, err := conn.ReadMessage()
 	if err != nil {
 		t.Fatalf("Failed to read: %v", err)

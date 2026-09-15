@@ -514,7 +514,7 @@ func (m *Manager) handleLeave(client knet.Client, payload []byte) {
 	}
 
 	m.finalizeLeave(clientID, req.RoomID)
-	m.send(client, CmdRoomLeaveAck, RoomLeaveAck{RoomID: req.RoomID})
+	m.send(client, CmdRoomLeaveAck, RoomLeaveAck(req))
 }
 
 // handleMessage validates that the sender is a member of RoomID, runs the

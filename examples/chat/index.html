@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -34,27 +34,27 @@
     <div>
       <h1 class="text-xl font-bold text-white">knet chat example</h1>
       <p class="text-sm text-gray-400">
-        Status: <span id="status" class="font-semibold text-gopher-yellow">desconectado</span>
+        Status: <span id="status" class="font-semibold text-gopher-yellow">disconnected</span>
       </p>
     </div>
   </header>
 
   <p class="text-xs text-gray-500 mb-4">
-    Certificado autoassinado: se a conexão não abrir, visite
+    Self-signed certificate: if the page won't open, visit
     <a href="https://localhost:8080/ws" target="_blank" class="text-gopher-blue underline">https://localhost:8080</a>
-    numa aba e aceite o aviso de segurança — depois volte aqui e clique em Conectar.
+    in a tab, accept the security warning, then come back here and click Connect.
   </p>
 
   <div class="flex gap-2 mb-4">
-    <input id="name" placeholder="seu nome" value="guest"
+    <input id="name" placeholder="your name" value="guest"
       class="flex-1 bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gopher-blue">
     <button id="connectBtn"
       class="bg-gopher-blue hover:bg-gopher-dark text-white font-semibold px-4 py-2 rounded text-sm transition">
-      Conectar
+      Connect
     </button>
     <button id="leaveBtn" disabled
       class="bg-gopher-fuchsia hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded text-sm transition">
-      Sair
+      Leave
     </button>
   </div>
 
@@ -62,11 +62,11 @@
     class="list-none p-0 h-80 overflow-y-auto bg-neutral-900 border border-neutral-700 rounded mb-4 divide-y divide-neutral-800"></ul>
 
   <div class="flex gap-2">
-    <input id="text" placeholder="mensagem" disabled
+    <input id="text" placeholder="message" disabled
       class="flex-1 bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-gopher-blue">
     <button id="sendBtn" disabled
       class="bg-gopher-aqua hover:bg-gopher-dark disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded text-sm transition">
-      Enviar
+      Send
     </button>
   </div>
 
@@ -101,12 +101,12 @@ const ROOM_TYPE = "lobby"; // matches roomManager.Define("lobby", ...) on the se
 // the only signal we get, so turn that into a human-readable guess.
 function describeCloseReason(code, neverOpened, url) {
   if (!neverOpened) return null; // dropped after a working connection — not a handshake problem
-  if (code === 1015) return "certificado TLS recusado pelo navegador";
+  if (code === 1015) return "TLS certificate rejected by browser";
   if (code === 1006 && url.startsWith("wss://")) {
     const httpsUrl = url.replace(/^wss:/, "https:").replace(/\/ws$/, "");
-    return `TLS/handshake falhou — provavelmente o certificado autoassinado ainda não foi aceito. Abra ${httpsUrl} numa aba, aceite o aviso, e tente de novo.`;
+    return `TLS/handshake failed — the self-signed certificate probably hasn't been accepted yet. Open ${httpsUrl} in a tab, accept the warning, and try again.`;
   }
-  return `fechado com código ${code}`;
+  return `closed with code ${code}`;
 }
 // --8<-- [end:close-reason]
 
@@ -145,7 +145,7 @@ function addMessage(text, kind = "chat") {
 
 client.on("connected", async () => {
   reconnectAttempt = 0;
-  statusEl.textContent = "conectado";
+  statusEl.textContent = "connected";
   statusEl.className = "font-semibold text-gopher-aqua";
   document.getElementById("leaveBtn").disabled = false;
   textEl.disabled = false;
@@ -163,7 +163,7 @@ client.on("disconnected", (code, reason) => {
   const neverOpened = reconnectAttempt === 0 && performance.now() - connectStartedAt < 1000;
   const hint = describeCloseReason(code, neverOpened, url);
   const reconnecting = !leftVoluntarily;
-  statusEl.textContent = hint ? `erro: ${hint}` : (reconnecting ? "reconectando..." : "desconectado");
+  statusEl.textContent = hint ? `error: ${hint}` : (reconnecting ? "reconnecting..." : "disconnected");
   statusEl.className = reconnecting ? "font-semibold text-gopher-yellow" : "font-semibold text-gopher-fuchsia";
   document.getElementById("leaveBtn").disabled = true;
   textEl.disabled = true;
@@ -180,15 +180,15 @@ client.onCommand(CmdRoomSnapshot, (payload) => {
 client.onCommand(CmdUserJoined, (payload) => {
   const json = JSON.parse(new TextDecoder().decode(payload));
   names.set(json.clientId, json.name);
-  addMessage(`${json.name} entrou`, "join");
+  addMessage(`${json.name} joined`, "join");
 });
 client.onCommand(CmdUserLeft, (payload) => {
   const json = JSON.parse(new TextDecoder().decode(payload));
   names.delete(json.clientId);
-  addMessage(`${json.name} saiu`, "left");
+  addMessage(`${json.name} left`, "left");
 });
 rooms.on("memberDisconnected", (roomId, clientId) => {
-  addMessage(`${names.get(clientId) || clientId} caiu (conexão perdida)`, "disconnected");
+  addMessage(`${names.get(clientId) || clientId} dropped (connection lost)`, "disconnected");
 });
 rooms.on("message", (roomId, senderId, type, data) => {
   if (type !== "chat") return;
@@ -209,7 +209,7 @@ document.getElementById("sendBtn").addEventListener("click", () => {
   // sendMessage is only delivered to other room members, not echoed back to
   // the sender — render our own message locally instead of waiting for one
   // that will never arrive.
-  addMessage(`${nameEl.value || "guest"} (você): ${textEl.value}`, "chat");
+  addMessage(`${nameEl.value || "guest"} (you): ${textEl.value}`, "chat");
   rooms.sendMessage(ROOM_ID, "chat", textEl.value);
   textEl.value = "";
 });

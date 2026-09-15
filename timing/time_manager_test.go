@@ -61,10 +61,7 @@ func TestTimeManagerRoomScopedBroadcast(t *testing.T) {
 	defer cancel()
 
 	deadline := time.After(500 * time.Millisecond)
-	for {
-		if len(c.sent) >= 1 {
-			break
-		}
+	for len(c.sent) < 1 {
 		select {
 		case <-deadline:
 			t.Fatal("timed out waiting for room broadcast")

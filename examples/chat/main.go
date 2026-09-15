@@ -78,7 +78,7 @@ func serveStatic(ctx context.Context, addr string) *http.Server {
 		<-ctx.Done()
 		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		srv.Shutdown(stopCtx)
+		_ = srv.Shutdown(stopCtx)
 	}()
 
 	return srv

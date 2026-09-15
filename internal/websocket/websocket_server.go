@@ -382,7 +382,7 @@ func (s *Server) Stop(ctx context.Context) error {
 			if client, ok := value.(*Client); ok {
 				forced++
 				s.metrics.IncCounter("knet_shutdown_forced_close_total")
-				client.CloseWithCode(ctx, websocket.CloseGoingAway, "server shutting down")
+				_ = client.CloseWithCode(ctx, websocket.CloseGoingAway, "server shutting down")
 			}
 			return true
 		})
@@ -524,12 +524,12 @@ func (s *Server) handleClient(client *Client, resumed bool, previousRooms []stri
 		} else {
 			s.sessionStore.Delete(client.ID())
 		}
-		client.Close(context.Background())
+		_ = client.Close(context.Background())
 	}()
 
-	client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
+	_ = client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
 	client.conn.SetPongHandler(func(string) error {
-		client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
+		_ = client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
 		return nil
 	})
 
@@ -537,7 +537,7 @@ func (s *Server) handleClient(client *Client, resumed bool, previousRooms []stri
 	if s.onConnect != nil {
 		if !s.onConnect(client) {
 			client.serverClosed.Store(true)
-			client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "unauthorized")
+			_ = client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "unauthorized")
 			return
 		}
 	}
@@ -545,7 +545,7 @@ func (s *Server) handleClient(client *Client, resumed bool, previousRooms []stri
 	if resumed && s.onResume != nil {
 		if !s.onResume(client, previousRooms) {
 			client.serverClosed.Store(true)
-			client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "resume rejected")
+			_ = client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "resume rejected")
 			return
 		}
 	}
@@ -559,7 +559,7 @@ func (s *Server) handleClient(client *Client, resumed bool, previousRooms []stri
 	go func() {
 		defer s.clientWg.Done()
 		<-client.Context().Done()
-		client.conn.SetReadDeadline(time.Now())
+		_ = client.conn.SetReadDeadline(time.Now())
 	}()
 
 	for {
@@ -571,13 +571,13 @@ func (s *Server) handleClient(client *Client, resumed bool, previousRooms []stri
 			return
 		}
 
-		client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
+		_ = client.conn.SetReadDeadline(time.Now().Add(s.readDeadline))
 
 		if !client.CheckRateLimit(context.Background()) {
 			s.metrics.IncCounter("knet_ratelimit_rejected_total")
 			s.log.Warn("rate limit exceeded", "client_id", client.ID(), "addr", client.RemoteAddr())
 			client.serverClosed.Store(true)
-			client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "rate limit exceeded")
+			_ = client.CloseWithCode(context.Background(), websocket.ClosePolicyViolation, "rate limit exceeded")
 			return
 		}
 
@@ -586,10 +586,10 @@ func (s *Server) handleClient(client *Client, resumed bool, previousRooms []stri
 			client.serverClosed.Store(true)
 			if errors.Is(err, protocol.ErrUnsupportedVersion) {
 				s.log.Warn("unsupported protocol version", "client_id", client.ID(), "addr", client.RemoteAddr())
-				client.CloseWithCode(context.Background(), websocket.CloseUnsupportedData, "unsupported protocol version")
+				_ = client.CloseWithCode(context.Background(), websocket.CloseUnsupportedData, "unsupported protocol version")
 				return
 			}
-			client.CloseWithCode(context.Background(), websocket.CloseProtocolError, knet.ErrInvalidMessageFormat)
+			_ = client.CloseWithCode(context.Background(), websocket.CloseProtocolError, knet.ErrInvalidMessageFormat)
 			return
 		}
 

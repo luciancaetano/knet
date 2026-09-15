@@ -18,7 +18,7 @@ make docs              # serve mkdocs site at :8037 (installs .venv/mkdocs-mater
 
 Single test: `go test ./tests/unit/... -run TestName -v` (swap the path for `./tests/e2e/...` etc). Package-level unit tests also live alongside source, e.g. `go test ./room/... -run TestName -v`.
 
-After editing any `.go` file, run `make fmt` (`go fmt ./...`) and `make lint` (`golangci-lint run ./...`) before finishing the task.
+After editing any `.go` file, run `make fmt` (`go fmt ./...`) and `make lint` (`golangci-lint run ./...`) before finishing the task. `make lint` runs against the whole repo, not just touched packages — treat every issue it reports as in scope to fix, including pre-existing ones unrelated to the current change, not just newly introduced ones. Validation (build/vet/lint/test) is a whole-package gate, not scoped to the diff.
 
 ## Architecture
 

@@ -267,7 +267,7 @@ func (c *Client) writePump() {
 		// Ensure the context is cancelled even when writePump exits due to a
 		// write error (rather than because Close/CloseWithCode was called).
 		c.cancel()
-		c.conn.Close()
+		_ = c.conn.Close()
 	}()
 
 	for {
@@ -275,20 +275,20 @@ func (c *Client) writePump() {
 		// select so a pending close frame is sent before any queued messages.
 		select {
 		case msg := <-c.closeCh:
-			c.conn.SetWriteDeadline(time.Now().Add(time.Second))
-			c.conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(time.Second))
+			_ = c.conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
 			return
 		default:
 		}
 
 		select {
 		case msg := <-c.closeCh:
-			c.conn.SetWriteDeadline(time.Now().Add(time.Second))
-			c.conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(time.Second))
+			_ = c.conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second))
 			return
 
 		case message, ok := <-c.sendCh:
-			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
 				return
 			}
@@ -316,7 +316,7 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

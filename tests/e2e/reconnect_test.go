@@ -38,7 +38,7 @@ func TestReconnectResume(t *testing.T) {
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Stop(stopCtx)
+		_ = server.Stop(stopCtx)
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -53,7 +53,7 @@ func TestReconnectResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to reconnect with session: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	select {
 	case rooms := <-resumeCh:

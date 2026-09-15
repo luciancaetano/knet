@@ -129,7 +129,7 @@ func TestJoin_CreatesRoomAndAcks(t *testing.T) {
 		t.Fatal("expected join ack")
 	}
 	var ack RoomJoinAck
-	json.Unmarshal(msg.payload, &ack)
+	_ = json.Unmarshal(msg.payload, &ack)
 	if ack.RoomID != "room-1" || len(ack.Members) != 1 || ack.Members[0] != "a" {
 		t.Fatalf("unexpected ack: %+v", ack)
 	}
@@ -153,14 +153,14 @@ func TestJoin_BroadcastsToExistingMembers(t *testing.T) {
 		t.Fatal("expected A to receive member-joined event for B")
 	}
 	var ev RoomMemberEvent
-	json.Unmarshal(msg.payload, &ev)
+	_ = json.Unmarshal(msg.payload, &ev)
 	if ev.Type != MemberJoined || ev.ClientID != "b" {
 		t.Fatalf("unexpected event: %+v", ev)
 	}
 
 	ackMsg, _ := b.lastOf(CmdRoomJoinAck)
 	var ack RoomJoinAck
-	json.Unmarshal(ackMsg.payload, &ack)
+	_ = json.Unmarshal(ackMsg.payload, &ack)
 	if len(ack.Members) != 2 {
 		t.Fatalf("expected 2 members in ack, got %v", ack.Members)
 	}
@@ -194,7 +194,7 @@ func TestLeave_NotAMember(t *testing.T) {
 		t.Fatal("expected CmdRoomError")
 	}
 	var rerr RoomError
-	json.Unmarshal(msg.payload, &rerr)
+	_ = json.Unmarshal(msg.payload, &rerr)
 	if rerr.Code != ErrCodeNotAMember {
 		t.Fatalf("expected NOT_A_MEMBER, got %s", rerr.Code)
 	}
@@ -215,7 +215,7 @@ func TestLeave_RemovesAndClosesEmptyRoom(t *testing.T) {
 		t.Fatal("expected B to see member-left")
 	}
 	var ev RoomMemberEvent
-	json.Unmarshal(msg.payload, &ev)
+	_ = json.Unmarshal(msg.payload, &ev)
 	if ev.Type != MemberLeft || ev.ClientID != "a" {
 		t.Fatalf("unexpected event: %+v", ev)
 	}
@@ -240,7 +240,7 @@ func TestRoomFull(t *testing.T) {
 		t.Fatal("expected CmdRoomError for full room")
 	}
 	var rerr RoomError
-	json.Unmarshal(msg.payload, &rerr)
+	_ = json.Unmarshal(msg.payload, &rerr)
 	if rerr.Code != ErrCodeRoomFull {
 		t.Fatalf("expected ROOM_FULL, got %s", rerr.Code)
 	}
@@ -261,7 +261,7 @@ func TestOnBeforeJoin_Rejection(t *testing.T) {
 		t.Fatal("expected CmdRoomError")
 	}
 	var rerr RoomError
-	json.Unmarshal(msg.payload, &rerr)
+	_ = json.Unmarshal(msg.payload, &rerr)
 	if rerr.Code != ErrCodeJoinRejected {
 		t.Fatalf("expected JOIN_REJECTED, got %s", rerr.Code)
 	}
@@ -291,7 +291,7 @@ func TestDisconnect_Voluntary_RemovesImmediately(t *testing.T) {
 		t.Fatal("expected member event")
 	}
 	var ev RoomMemberEvent
-	json.Unmarshal(msg.payload, &ev)
+	_ = json.Unmarshal(msg.payload, &ev)
 	if ev.Type != MemberLeft {
 		t.Fatalf("expected left on voluntary disconnect, got %s", ev.Type)
 	}
@@ -315,7 +315,7 @@ func TestDisconnect_Involuntary_GraceThenResume(t *testing.T) {
 		t.Fatal("expected disconnected event")
 	}
 	var ev RoomMemberEvent
-	json.Unmarshal(msg.payload, &ev)
+	_ = json.Unmarshal(msg.payload, &ev)
 	if ev.Type != MemberDisconnected {
 		t.Fatalf("expected disconnected, got %s", ev.Type)
 	}
@@ -335,7 +335,7 @@ func TestDisconnect_Involuntary_GraceThenResume(t *testing.T) {
 	if !ok {
 		t.Fatal("expected reconnected event")
 	}
-	json.Unmarshal(msg.payload, &ev)
+	_ = json.Unmarshal(msg.payload, &ev)
 	if ev.Type != MemberReconnected {
 		t.Fatalf("expected reconnected, got %s", ev.Type)
 	}
@@ -345,7 +345,7 @@ func TestDisconnect_Involuntary_GraceThenResume(t *testing.T) {
 		t.Fatal("expected resume sync sent to resumed client")
 	}
 	var sync RoomResumeSync
-	json.Unmarshal(syncMsg.payload, &sync)
+	_ = json.Unmarshal(syncMsg.payload, &sync)
 	if len(sync.Rooms) != 1 || sync.Rooms[0].RoomID != "room-1" {
 		t.Fatalf("unexpected resume sync: %+v", sync)
 	}
@@ -364,10 +364,7 @@ func TestDisconnect_Involuntary_GraceExpires(t *testing.T) {
 	deadline := time.After(2 * time.Second)
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
-	for {
-		if len(m.RoomsOf("a")) == 0 {
-			break
-		}
+	for len(m.RoomsOf("a")) != 0 {
 		select {
 		case <-tick.C:
 		case <-deadline:
@@ -381,7 +378,7 @@ func TestDisconnect_Involuntary_GraceExpires(t *testing.T) {
 		t.Fatal("expected member event")
 	}
 	var ev RoomMemberEvent
-	json.Unmarshal(msg.payload, &ev)
+	_ = json.Unmarshal(msg.payload, &ev)
 	if ev.Type != MemberLeft {
 		t.Fatalf("expected left after grace expiry, got %s", ev.Type)
 	}
@@ -408,7 +405,7 @@ func TestMessage_BroadcastsToOtherMembersOnly(t *testing.T) {
 		t.Fatal("expected b to receive the message")
 	}
 	var ev RoomMessageEvent
-	json.Unmarshal(msg.payload, &ev)
+	_ = json.Unmarshal(msg.payload, &ev)
 	if ev.RoomID != "room-1" || ev.SenderID != "a" || ev.Type != "chat" || ev.Data != "hi" {
 		t.Fatalf("unexpected event: %+v", ev)
 	}
@@ -429,7 +426,7 @@ func TestMessage_NotAMember(t *testing.T) {
 		t.Fatal("expected CmdRoomError")
 	}
 	var rerr RoomError
-	json.Unmarshal(msg.payload, &rerr)
+	_ = json.Unmarshal(msg.payload, &rerr)
 	if rerr.Code != ErrCodeNotAMember {
 		t.Fatalf("expected NOT_A_MEMBER, got %s", rerr.Code)
 	}
@@ -453,7 +450,7 @@ func TestMessage_OnRoomMessageRejection(t *testing.T) {
 		t.Fatal("expected CmdRoomError")
 	}
 	var rerr RoomError
-	json.Unmarshal(msg.payload, &rerr)
+	_ = json.Unmarshal(msg.payload, &rerr)
 	if rerr.Code != ErrCodeMessageRejected {
 		t.Fatalf("expected MESSAGE_REJECTED, got %s", rerr.Code)
 	}

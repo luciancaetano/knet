@@ -27,7 +27,7 @@ func TestShutdownDrainForcesStragglers(t *testing.T) {
 	ctx := context.Background()
 
 	handlerStarted := make(chan struct{})
-	server.RegisterHandler(ctx, cmdSlow, func(client knet.Client, payload []byte) {
+	_ = server.RegisterHandler(ctx, cmdSlow, func(client knet.Client, payload []byte) {
 		close(handlerStarted)
 		time.Sleep(2 * time.Second) // outlives DrainTimeout on purpose
 	})
@@ -41,7 +41,7 @@ func TestShutdownDrainForcesStragglers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	encoded, _ := protocol.Encode(cmdSlow, []byte("go"))
 	if err := conn.WriteMessage(websocket.BinaryMessage, encoded); err != nil {
@@ -66,7 +66,7 @@ func TestShutdownDrainForcesStragglers(t *testing.T) {
 		t.Errorf("Stop returned after %v, want at least DrainTimeout %v", stopElapsed, cfg.DrainTimeout)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, _, err = conn.ReadMessage()
 	closeErr, ok := err.(*websocket.CloseError)
 	if !ok {
@@ -99,7 +99,7 @@ func TestShutdownDrainReturnsEarlyOnVoluntaryDisconnect(t *testing.T) {
 	}
 
 	// Client disconnects voluntarily right away.
-	conn.Close()
+	_ = conn.Close()
 	time.Sleep(100 * time.Millisecond)
 
 	stopStart := time.Now()
@@ -140,7 +140,7 @@ func TestShutdownRejectsNewConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	stopDone := make(chan struct{})
 	go func() {
@@ -157,7 +157,7 @@ func TestShutdownRejectsNewConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected the listener to still be open during drain, got: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusServiceUnavailable)
 	}
