@@ -21,7 +21,7 @@ jobs:
       - run: go test ./tests/unit/... ./tests/e2e/...
 
       - name: Trigger Go proxy indexing
-        run: curl -sf "https://proxy.golang.org/github.com/luciancaetano/knet/@v/${GITHUB_REF_NAME}.info"
+        run: curl -s "https://proxy.golang.org/github.com/luciancaetano/knet/@v/${GITHUB_REF_NAME}.info" || true
 
       - uses: softprops/action-gh-release@v2
         with:
