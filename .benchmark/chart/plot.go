@@ -5,7 +5,6 @@ package chart
 import (
 	"encoding/csv"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -146,6 +145,7 @@ func readJitterCSV(path string) ([]jitterRow, error) {
 func logAxis(p *plot.Plot) {
 	p.X.Scale = plot.LogScale{}
 	p.X.Tick.Marker = plot.LogTicks{}
+	p.Add(plotter.NewGrid())
 }
 
 func toXY(rows []row, f func(row) float64) plotter.XYs {
@@ -154,21 +154,40 @@ func toXY(rows []row, f func(row) float64) plotter.XYs {
 		if r.connections <= 0 {
 			continue
 		}
-		pts = append(pts, struct{ X, Y float64 }{X: math.Log10(r.connections), Y: f(r)})
+		pts = append(pts, struct{ X, Y float64 }{X: r.connections, Y: f(r)})
 	}
 	return pts
+}
+
+// labelPoints adds a text label with each point's Y value above the marker,
+// so exact values are readable without hovering/zooming.
+func labelPoints(p *plot.Plot, pts plotter.XYs, format string) error {
+	labels := make([]string, len(pts))
+	for i, pt := range pts {
+		labels[i] = fmt.Sprintf(format, pt.Y)
+	}
+	l, err := plotter.NewLabels(plotter.XYLabels{XYs: pts, Labels: labels})
+	if err != nil {
+		return err
+	}
+	p.Add(l)
+	return nil
 }
 
 func latencyPlot(data map[string][]row) (*plot.Plot, error) {
 	p := plot.New()
 	p.Title.Text = "Latency (p99) vs Connections"
-	p.X.Label.Text = "connections (log10)"
+	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "latency (ms)"
 	logAxis(p)
 
 	var args []interface{}
 	for _, s := range scenarios {
-		args = append(args, s, toXY(data[s], func(r row) float64 { return r.p99 }))
+		pts := toXY(data[s], func(r row) float64 { return r.p99 })
+		args = append(args, s, pts)
+		if err := labelPoints(p, pts, "%.2f"); err != nil {
+			return nil, err
+		}
 	}
 	if err := plotutil.AddLinePoints(p, args...); err != nil {
 		return nil, err
@@ -179,13 +198,17 @@ func latencyPlot(data map[string][]row) (*plot.Plot, error) {
 func memoryPlot(data map[string][]row) (*plot.Plot, error) {
 	p := plot.New()
 	p.Title.Text = "Memory per Connection vs Connections"
-	p.X.Label.Text = "connections (log10)"
+	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "bytes / connection"
 	logAxis(p)
 
 	var args []interface{}
 	for _, s := range scenarios {
-		args = append(args, s, toXY(data[s], func(r row) float64 { return r.bytesPerConn }))
+		pts := toXY(data[s], func(r row) float64 { return r.bytesPerConn })
+		args = append(args, s, pts)
+		if err := labelPoints(p, pts, "%.0f"); err != nil {
+			return nil, err
+		}
 	}
 	if err := plotutil.AddLinePoints(p, args...); err != nil {
 		return nil, err
@@ -196,13 +219,17 @@ func memoryPlot(data map[string][]row) (*plot.Plot, error) {
 func throughputPlot(data map[string][]row) (*plot.Plot, error) {
 	p := plot.New()
 	p.Title.Text = "Throughput vs Connections"
-	p.X.Label.Text = "connections (log10)"
+	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "messages / sec"
 	logAxis(p)
 
 	var args []interface{}
 	for _, s := range scenarios {
-		args = append(args, s, toXY(data[s], func(r row) float64 { return r.throughput }))
+		pts := toXY(data[s], func(r row) float64 { return r.throughput })
+		args = append(args, s, pts)
+		if err := labelPoints(p, pts, "%.0f"); err != nil {
+			return nil, err
+		}
 	}
 	if err := plotutil.AddLinePoints(p, args...); err != nil {
 		return nil, err
@@ -212,8 +239,8 @@ func throughputPlot(data map[string][]row) (*plot.Plot, error) {
 
 func jitterPlot(rows []jitterRow) (*plot.Plot, error) {
 	p := plot.New()
-	p.Title.Text = "Ticker Jitter vs Connections"
-	p.X.Label.Text = "connections (log10)"
+	p.Title.Text = "Ticker Jitter (p99) vs Connections"
+	p.X.Label.Text = "connections"
 	p.Y.Label.Text = "tick interval drift (ms)"
 	logAxis(p)
 
@@ -222,12 +249,16 @@ func jitterPlot(rows []jitterRow) (*plot.Plot, error) {
 		if r.connections <= 0 {
 			continue
 		}
-		byMode[r.mode] = append(byMode[r.mode], struct{ X, Y float64 }{X: math.Log10(r.connections), Y: r.p99})
+		byMode[r.mode] = append(byMode[r.mode], struct{ X, Y float64 }{X: r.connections, Y: r.p99})
 	}
 
 	var args []interface{}
 	for _, mode := range []string{"no_room", "room"} {
-		args = append(args, mode+" p99 drift", byMode[mode])
+		pts := byMode[mode]
+		args = append(args, mode+" p99 drift", pts)
+		if err := labelPoints(p, pts, "%.2f"); err != nil {
+			return nil, err
+		}
 	}
 	if err := plotutil.AddLinePoints(p, args...); err != nil {
 		return nil, err
