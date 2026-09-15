@@ -76,4 +76,67 @@ Example:
 ✨ feat(chat): add reconnect backoff to ws client
 ```
 
-Body (optional): why, not what — wrap ~72 cols. Footer: issue refs, `BREAKING CHANGE:`.
+Body (optional): why, not what, wrap ~72 cols. Footer: issue refs, `BREAKING CHANGE:`.
+
+<!-- harness:start -->
+## Navigation index
+
+> Read this first; do not blind-recurse the repo. Deep per-area detail lives in
+> `.claude/repo-index/*.md`, read the one matching the area you touch (not auto-loaded). Per-area
+> agent rules live in a per-area `CLAUDE.md` (not `AGENTS.md`) when one exists; none exist yet
+> outside this root file.
+
+### 1. System Topology
+- **Core protocol `./` (root package `knet`):** Go, interfaces only (`Server`, `Client`,
+  `ConnectionPayload`) plus the wire command-ID format.
+- **WS transport `ws/` + `internal/websocket/` + `internal/protocol/`:** Go, `ws/` is a thin
+  public facade re-exporting `internal/websocket/`, the real gorilla-websocket implementation.
+- **Room `internal/room/` + `roommanager/`:** Go, low-level room primitive plus the public
+  roommanager API built on it.
+- **Observer `observer/`:** Go, interest-managed broadcast.
+- **Syncvar `syncvar/` + `clients/js/src/syncvar.ts`:** Go + JS, dirty-tracked state sync, both
+  sides must stay wire-compatible.
+- **Timing/Clock `timing/` + `clock/`:** Go, tick scheduler/RTT ping-pong vs. clock sync (distinct
+  concerns, do not conflate).
+- **Examples `examples/`:** Go (+ JS/Unity), runnable consumers per client target.
+- **JS client `clients/js/`:** TypeScript, `@lcaetano/knet-client`, MAJOR.MINOR tracks the Go
+  module.
+- **Tests `tests/`:** Go, cross-package unit/e2e/stress suites (each package also has its own
+  colocated `*_test.go`).
+- **Docs `docs-site/` + `spec/`:** mkdocs site source; `spec/spec-architecture-room-manager.md` is
+  the roommanager design reference.
+
+### 2. Structural Routing Triggers
+- Adding/changing a public interface or the command-ID format: `./` (root package).
+- Handler dispatch, rate limiting, origin checks, TLS, connection lifecycle: `internal/websocket/`
+  (re-export new public surface via `ws/server.go`).
+- Room membership/broadcast primitive: `internal/room/`; room-facing public API/protocol:
+  `roommanager/`.
+- Interest-managed/filtered broadcast: `observer/`.
+- Dirty-tracked state sync: `syncvar/` (mirror in `clients/js/src/syncvar.ts`).
+- Tick scheduling or RTT ping: `timing/`; wall-clock sync: `clock/`.
+- Browser client behavior: `clients/js/src/`.
+- Cross-package/integration test: `tests/unit/`, `tests/e2e/`, `tests/stress/`.
+
+### 3. Search & Grep Optimization
+- **File patterns:** `*.go` (root + packages), `clients/js/src/*.ts`, `examples/**/main.go`.
+- **Deny rules:** `.venv/`, `docs-site/` build output, `node_modules/` (under `clients/js/`),
+  `clients/js/dist/`, `.git/`, `.claude/worktrees/`.
+- **Non-code zones:** `docs-site/docs/`, `spec/`, `README.md`, `ROADMAP.md`, `llms-full.txt`.
+
+### 4. Deep Index Pointers
+- Editing `./*.go` (root files): read `.claude/repo-index/core-protocol.md`.
+- Editing `ws/**`, `internal/websocket/**`, `internal/protocol/**`: read
+  `.claude/repo-index/ws-transport.md`.
+- Editing `internal/room/**`, `roommanager/**`, `spec/**`: read `.claude/repo-index/room.md`.
+- Editing `observer/**`: read `.claude/repo-index/observer.md`.
+- Editing `syncvar/**` or `clients/js/src/syncvar.ts`: read `.claude/repo-index/syncvar.md`.
+- Editing `timing/**`, `clock/**`: read `.claude/repo-index/timing-clock.md`.
+- Editing `examples/**`: read `.claude/repo-index/examples.md`.
+- Editing `clients/js/**`: read `.claude/repo-index/clients-js.md`.
+- Editing `tests/**`: read `.claude/repo-index/tests.md`.
+
+### 5. Deeper navigation (on-demand)
+- `.claude/meta/navigation.md` for the doc map, instruction hierarchy, and agent/skill guide.
+- `.claude/harness/profile.md` for /pr and /ticket project tokens.
+<!-- harness:end -->
